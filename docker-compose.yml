@@ -5,7 +5,7 @@ services:
     build: .
     container_name: compte-app-sync
     ports:
-      - "8000:8000"
+      - "8452:8452"
     volumes:
       - ./data:/data
     restart: unless-stopped
@@ -14,4 +14,4 @@ services:
       - WOOB_WORKDIR=/data/woob
       - WOOB_DATADIR=/data/woob
       - HOST=0.0.0.0
-      - PORT=8000
+      - PORT=8452
