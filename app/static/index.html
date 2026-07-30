@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CompteApp - Gestion de Finances Personnelles</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- FontAwesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Custom stylesheet -->
+    <link rel="stylesheet" href="/static/style.css?v=1.6.0">
+</head>
+<body>
+    <div class="background-decor">
+        <div class="circle circle-1"></div>
+        <div class="circle circle-2"></div>
+        <div class="circle circle-3"></div>
+    </div>
+
+    <div class="app-layout">
+        <!-- SIDEBAR -->
+        <aside class="sidebar glass-card">
+            <div class="logo">
+                <i class="fa-solid fa-chart-line icon-logo"></i>
+                <div class="logo-text">
+                    <h1>CompteApp</h1>
+                    <span>Mon Budget Personnel</span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <button class="nav-btn active" data-view="dashboard">
+                    <i class="fa-solid fa-gauge"></i> Tableau de bord
+                </button>
+                <button class="nav-btn" data-view="transactions">
+                    <i class="fa-solid fa-list-check"></i> Transactions
+                </button>
+                <button class="nav-btn" data-view="budgets">
+                    <i class="fa-solid fa-basket-shopping"></i> Budgets & Catégories
+                </button>
+                <button class="nav-btn" data-view="epargne">
+                    <i class="fa-solid fa-piggy-bank"></i> Épargne & Crédits
+                </button>
+                <button class="nav-btn" data-view="synthesis">
+                    <i class="fa-solid fa-table-list"></i> Synthèse Annuelle
+                </button>
+                <button class="nav-btn" data-view="config">
+                    <i class="fa-solid fa-sliders"></i> Configuration
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="sync-status">
+                    <span class="status-dot green" id="global-status-dot"></span>
+                    <span class="status-label" id="global-status-label">Synchronisé</span>
+                </div>
+                <div class="last-sync-time">
+                    Dernière sync : <span id="last-sync-text">Jamais</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- MAIN WINDOW -->
+        <main class="main-content">
+            <!-- TOP APP BAR -->
+            <header class="app-header glass-card">
+                <div class="header-title">
+                    <h2 id="current-view-title">Tableau de bord</h2>
+                </div>
+                <div class="header-actions">
+                    <button id="btn-toggle-theme" class="btn btn-secondary" title="Changer le thème (Clair / Sombre)" style="width: 38px; height: 38px; padding: 0; justify-content: center; border-radius: 10px;">
+                        <i class="fa-solid fa-sun" id="theme-icon"></i>
+                    </button>
+                    <button id="btn-update-woob" class="btn btn-secondary" title="Mettre à jour les modules de banques">
+                        <i class="fa-solid fa-cloud-arrow-down"></i> Mettre à jour Woob
+                    </button>
+                    <button id="btn-sync-now" class="btn btn-primary" title="Récupérer les dernières transactions bancaires">
+                        <i class="fa-solid fa-rotate"></i> Synchroniser maintenant
+                    </button>
+                </div>
+            </header>
+
+            <!-- ================= VIEW: DASHBOARD ================= -->
+            <section id="view-dashboard" class="view-section">
+                <!-- KPI CARDS -->
+                <div class="stats-row">
+                    <div class="stat-card glass-card">
+                        <div class="stat-icon purple-bg"><i class="fa-solid fa-vault"></i></div>
+                        <div class="stat-info">
+                            <h3 id="stat-patrimoine-net">0.00 €</h3>
+                            <p>Patrimoine Net</p>
+                        </div>
+                    </div>
+                    <div class="stat-card glass-card">
+                        <div class="stat-icon blue-bg"><i class="fa-solid fa-coins"></i></div>
+                        <div class="stat-info">
+                            <h3 id="stat-patrimoine-positif">0.00 €</h3>
+                            <p>Patrimoine Positif</p>
+                        </div>
+                    </div>
+                    <div class="stat-card glass-card">
+                        <div class="stat-icon green-bg"><i class="fa-solid fa-arrow-trend-up"></i></div>
+                        <div class="stat-info">
+                            <h3 id="stat-revenus-mois">0.00 €</h3>
+                            <p>Revenus du mois</p>
+                        </div>
+                    </div>
+                    <div class="stat-card glass-card">
+                        <div class="stat-icon orange-bg"><i class="fa-solid fa-arrow-trend-down"></i></div>
+                        <div class="stat-info">
+                            <h3 id="stat-depenses-mois">0.00 €</h3>
+                            <p>Dépenses du mois</p>
+                        </div>
+                    </div>
+                    <div class="stat-card glass-card">
+                        <div class="stat-icon purple-bg"><i class="fa-solid fa-percent"></i></div>
+                        <div class="stat-info">
+                            <h3 id="stat-taux-epargne">0 %</h3>
+                            <p>Taux d'Épargne</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CHARTS ROW -->
+                <div class="dashboard-grid">
+                    <div class="panel glass-card grid-col-8">
+                        <div class="panel-header">
+                            <h2><i class="fa-solid fa-chart-area"></i> Évolution des flux mensuels</h2>
+                        </div>
+                        <div class="panel-body chart-container">
+                            <canvas id="chart-flux"></canvas>
+                        </div>
+                    </div>
+                    <div class="panel glass-card grid-col-4">
+                        <div class="panel-header">
+                            <h2><i class="fa-solid fa-chart-pie"></i> Dépenses par Catégorie</h2>
+                        </div>
+                        <div class="panel-body chart-container">
+                            <canvas id="chart-categories"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ACCOUNTS ROW -->
+                <div class="panel glass-card">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-credit-card"></i> Solde des Comptes Bancaires</h2>
+                    </div>
+                    <div class="panel-body">
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-accounts-dashboard">
+                                <thead>
+                                    <tr>
+                                        <th>Compte</th>
+                                        <th>Établissement</th>
+                                        <th>Type</th>
+                                        <th>Dernière Sync</th>
+                                        <th class="text-right">Solde</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="5" class="text-center">Aucun compte bancaire chargé. Lancez une synchronisation.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= VIEW: TRANSACTIONS ================= -->
+            <section id="view-transactions" class="view-section hidden">
+                <div class="panel glass-card">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-magnifying-glass"></i> Filtres de recherche</h2>
+                    </div>
+                    <div class="panel-body">
+                        <div class="filters-row">
+                            <div class="filter-group">
+                                <label for="tx-filter-search">Recherche libellé</label>
+                                <input type="text" id="tx-filter-search" placeholder="ex: Carrefour...">
+                            </div>
+                            <div class="filter-group">
+                                <label for="tx-filter-month">Mois</label>
+                                <select id="tx-filter-month">
+                                    <option value="">Tous les mois</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label for="tx-filter-account">Compte</label>
+                                <select id="tx-filter-account">
+                                    <option value="">Tous les comptes</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label for="tx-filter-category">Catégorie</label>
+                                <select id="tx-filter-category">
+                                    <option value="">Toutes les catégories</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label for="tx-filter-type">Type</label>
+                                <select id="tx-filter-type">
+                                    <option value="">Tous les types</option>
+                                    <option value="Revenu">Revenu</option>
+                                    <option value="Dépense fixe">Dépense fixe</option>
+                                    <option value="Dépense variable">Dépense variable</option>
+                                    <option value="Transfert">Transfert</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel glass-card">
+                    <div class="panel-header flex-header">
+                        <h2><i class="fa-solid fa-list-ol"></i> Liste des transactions</h2>
+                        <button id="btn-open-import" class="btn btn-primary btn-sm"><i class="fa-solid fa-file-import"></i> Importer</button>
+                    </div>
+                    <div class="panel-body">
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-transactions">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Libellé</th>
+                                        <th>Compte</th>
+                                        <th>Catégorie</th>
+                                        <th>Note</th>
+                                        <th class="text-center" title="Pointée / Rapprochée">Pt</th>
+                                        <th class="text-center" title="Comptabilisée sur le mois suivant">Déc</th>
+                                        <th class="text-right">Montant</th>
+                                        <th class="text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Dynamic rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="pagination">
+                            <button id="btn-page-prev" class="btn btn-secondary btn-sm"><i class="fa-solid fa-chevron-left"></i> Précédent</button>
+                            <span id="page-indicator">Page 1</span>
+                            <button id="btn-page-next" class="btn btn-secondary btn-sm">Suivant <i class="fa-solid fa-chevron-right"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= VIEW: BUDGETS ================= -->
+            <section id="view-budgets" class="view-section hidden">
+                <div class="panel glass-card">
+                    <div class="panel-header header-with-btn">
+                        <h2><i class="fa-solid fa-calculator"></i> Suivi Budgétaire Mensuel</h2>
+                        <div class="month-selector-wrapper">
+                            <button class="btn btn-sm btn-secondary" id="btn-add-category" style="margin-right: 0.75rem;">
+                                <i class="fa-solid fa-folder-plus"></i> Nouvelle Catégorie
+                            </button>
+                            <select id="budget-month-select" class="month-select">
+                                <!-- Dynamic month list -->
+                            </select>
+                        </div>
+                    </div>
+                    <div class="panel-body">
+                        <div class="budget-summary-box">
+                            <div class="summary-item">
+                                <span class="label">Revenus</span>
+                                <span class="value green-text" id="budget-summary-income">0.00 €</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="label">Dépenses fixes</span>
+                                <span class="value orange-text" id="budget-summary-fixed">0.00 €</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="label">Dépenses variables</span>
+                                <span class="value orange-text" id="budget-summary-variable">0.00 €</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="label">Virements internes</span>
+                                <span class="value blue-text" id="budget-summary-savings">0.00 €</span>
+                            </div>
+                            <div class="summary-item highlight">
+                                <span class="label">Reste à vivre</span>
+                                <span class="value" id="budget-summary-net">0.00 €</span>
+                            </div>
+                        </div>
+
+                        <!-- CATEGORIES BUDGET BLOCKS -->
+                        <div class="budget-blocks">
+                            <!-- Fixed Expenses Block -->
+                            <div class="budget-category-group">
+                                <h3>Dépenses Fixes</h3>
+                                <div class="budget-cards-list" id="budget-list-fixed">
+                                    <!-- Dynamic items -->
+                                </div>
+                            </div>
+
+                            <!-- Variable Expenses Block -->
+                            <div class="budget-category-group">
+                                <h3>Dépenses Variables</h3>
+                                <div class="budget-cards-list" id="budget-list-variable">
+                                    <!-- Dynamic items -->
+                                </div>
+                            </div>
+
+                            <!-- Incomes Block -->
+                            <div class="budget-category-group">
+                                <h3>Revenus</h3>
+                                <div class="budget-cards-list" id="budget-list-income">
+                                    <!-- Dynamic items -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= VIEW: EPARGNE & CREDITS ================= -->
+            <section id="view-epargne" class="view-section hidden">
+                <div class="dashboard-grid">
+                    <!-- Tableau Epargne et Intérêts -->
+                    <div class="panel glass-card grid-col-6">
+                        <div class="panel-header">
+                            <h2><i class="fa-solid fa-piggy-bank"></i> Projection d'Intérêts Annuels</h2>
+                        </div>
+                        <div class="panel-body">
+                            <table class="data-table" id="table-savings-projection">
+                                <thead>
+                                    <tr>
+                                        <th>Livret</th>
+                                        <th>Taux</th>
+                                        <th class="text-right">Solde Actuel</th>
+                                        <th class="text-right">Intérêts Projetés</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Dynamic rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Crédit Info Card -->
+                    <div class="panel glass-card grid-col-6">
+                        <div class="panel-header">
+                            <h2><i class="fa-solid fa-percent"></i> Crédit Boursorama en cours</h2>
+                        </div>
+                        <div class="panel-body">
+                            <div class="loan-info-container" id="loan-info-card">
+                                <!-- Loan details and progress -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tableau Amortissement -->
+                <div class="panel glass-card">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-table-cells"></i> Tableau d'Amortissement du Prêt</h2>
+                    </div>
+                    <div class="panel-body">
+                        <div class="table-responsive select-loan-schedule">
+                            <table class="data-table" id="table-loan-schedule">
+                                <thead>
+                                    <tr>
+                                        <th>N° Échéance</th>
+                                        <th>Date</th>
+                                        <th class="text-right">Principal amorti</th>
+                                        <th class="text-right">Intérêts payés</th>
+                                        <th class="text-right">Assurance</th>
+                                        <th class="text-right">Mensualité</th>
+                                        <th class="text-right">Capital restant dû</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Dynamic Amortization Rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= VIEW: SYNTHESE ANNUELLE ================= -->
+            <section id="view-synthesis" class="view-section hidden">
+                <!-- CONTROLS ROW -->
+                <div class="synthesis-controls glass-card">
+                    <div class="control-group">
+                        <label for="synthesis-year-select"><i class="fa-solid fa-calendar-days"></i> Année :</label>
+                        <select id="synthesis-year-select" class="form-control select-compact" style="width: 120px;">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="mode-selector">
+                        <span class="mode-label">Mode d'affichage :</span>
+                        <div class="segmented-control">
+                            <input type="radio" name="synthesis-mode" id="mode-real" value="real" checked>
+                            <label for="mode-real"><i class="fa-solid fa-wallet"></i> Réalisé (Réel)</label>
+                            
+                            <input type="radio" name="synthesis-mode" id="mode-budget" value="budget">
+                            <label for="mode-budget"><i class="fa-solid fa-bullseye"></i> Prévisionnel (Budget)</label>
+                            <span class="selection-slider"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TABLE GRID PANEL -->
+                <div class="panel glass-card">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-table-cells"></i> Tableau de Synthèse (12 mois)</h2>
+                    </div>
+                    <div class="panel-body" style="padding: 0;">
+                        <div class="synthesis-table-wrapper">
+                            <table class="synthesis-table" id="table-synthesis">
+                                <!-- Dynamic spreadsheet grid -->
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= VIEW: CONFIGURATION ================= -->
+            <section id="view-config" class="view-section hidden">
+                <div class="dashboard-grid">
+                    <!-- LEFT COLUMN: BANK CONNECTIONS & RATES -->
+                    <div class="grid-left grid-col-6">
+                        <!-- BANK CONNECTIONS -->
+                        <div class="panel glass-card">
+                            <div class="panel-header header-with-btn">
+                                <h2><i class="fa-solid fa-bank"></i> Connecteurs de Banques</h2>
+                                <button id="btn-add-account" class="btn btn-sm btn-primary">
+                                    <i class="fa-solid fa-plus"></i> Ajouter une banque
+                                </button>
+                            </div>
+                            <div class="panel-body">
+                                <!-- Add/Edit Bank Form (Initially Hidden) -->
+                                <div id="bank-form-container" class="bank-form-box hidden">
+                                    <h3 id="bank-form-title">Ajouter une banque</h3>
+                                    <form id="form-bank">
+                                        <input type="hidden" id="bank_old_name" name="bank_old_name">
+                                        <div class="form-row">
+                                            <div class="form-group col-6">
+                                                <label for="bank_name">Nom personnalisé</label>
+                                                <input type="text" id="bank_name" name="bank_name" placeholder="Mon Boursorama" required>
+                                            </div>
+                                            <div class="form-group col-6">
+                                                <label for="bank_module">Banque (Module Woob)</label>
+                                                <select id="bank_module" name="bank_module" required>
+                                                    <option value="" disabled selected>Sélectionner...</option>
+                                                    <option value="boursorama">Boursorama (boursorama)</option>
+                                                    <option value="fortuneo">Fortuneo (fortuneo)</option>
+                                                    <option value="cragr">Crédit Agricole (cragr)</option>
+                                                    <option value="creditmutuel">Crédit Mutuel (creditmutuel)</option>
+                                                    <option value="societegenerale">Société Générale (societegenerale)</option>
+                                                    <option value="bnp">BNP Paribas (bnp)</option>
+                                                    <option value="lcl">LCL (lcl)</option>
+                                                    <option value="cic">CIC (cic)</option>
+                                                    <option value="bp">La Banque Postale (bp)</option>
+                                                    <option value="n26">N26 (n26)</option>
+                                                    <option value="caissedepargne">Caisse d'Épargne (caissedepargne)</option>
+                                                    <option value="banquepopulaire">Banque Populaire (banquepopulaire)</option>
+                                                    <option value="demo">Compte Démo (Test)</option>
+                                                    <option value="custom">Autre module Woob...</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div class="form-group hidden" id="custom-module-group">
+                                            <label for="custom_module">Identifiant du module Woob personnalisé</label>
+                                            <input type="text" id="custom_module" name="custom_module" placeholder="ex: ing">
+                                        </div>
+
+                                        <div class="form-row">
+                                            <div class="form-group col-6">
+                                                <label for="bank_login">Identifiant / N° de client</label>
+                                                <input type="text" id="bank_login" name="bank_login" placeholder="12345678" required>
+                                            </div>
+                                            <div class="form-group col-6">
+                                                <label for="bank_password">Mot de passe / Code d'accès</label>
+                                                <input type="password" id="bank_password" name="bank_password" placeholder="••••••••" required>
+                                            </div>
+                                        </div>
+
+                                        <div id="additional-fields-container">
+                                            <!-- Dynamic fields loaded via API (like regional caisse selector) -->
+                                        </div>
+
+                                        <div class="form-group checkbox-group">
+                                            <label for="bank_active">
+                                                <input type="checkbox" id="bank_active" name="bank_active" checked>
+                                                Activer ce compte pour la synchronisation
+                                            </label>
+                                        </div>
+
+                                        <div class="form-actions">
+                                            <button type="button" id="btn-cancel-bank" class="btn btn-secondary btn-sm">Annuler</button>
+                                            <button type="submit" class="btn btn-primary btn-sm">Enregistrer la banque</button>
+                                        </div>
+                                    </form>
+                                </div>
+
+                                <!-- Bank List -->
+                                <div id="backends-list" class="backends-list">
+                                    <!-- Dynamic list of backends -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- INDIVIDUAL ACCOUNTS CONFIG -->
+                        <div class="panel glass-card">
+                            <div class="panel-header">
+                                <h2><i class="fa-solid fa-list-check"></i> Gestion des Comptes</h2>
+                            </div>
+                            <div class="panel-body">
+                                <div class="help-text-sm" style="margin-bottom: 15px; font-size: 0.8rem; opacity: 0.8; line-height: 1.4;">
+                                    Décochez un compte pour l'exclure de vos budgets et le masquer de la liste principale des transactions.
+                                </div>
+                                <div class="accounts-config-list" id="accounts-config-list">
+                                    <!-- Dynamic list of individual accounts -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- INTEREST RATES CONFIG -->
+                        <div class="panel glass-card">
+                            <div class="panel-header">
+                                <h2><i class="fa-solid fa-percent"></i> Taux d'Intérêt des Livrets</h2>
+                            </div>
+                            <div class="panel-body">
+                                <form id="form-savings-rates">
+                                    <div class="rates-inputs-list" id="rates-config-fields">
+                                        <!-- Dynamic inputs for Livret A, LEP, LDD -->
+                                    </div>
+                                    <button type="submit" class="btn btn-primary btn-sm btn-block mt-3">Enregistrer les taux</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- RIGHT COLUMN: AUTO-CATEGORIZATION RULES & GENERAL SETTINGS -->
+                    <div class="grid-right grid-col-6">
+                        <!-- AUTO-CATEGORIZATION RULES -->
+                        <div class="panel glass-card">
+                            <div class="panel-header header-with-btn">
+                                <h2><i class="fa-solid fa-wand-magic-sparkles"></i> Règles d'Auto-Catégorisation</h2>
+                                <button id="btn-add-rule" class="btn btn-sm btn-secondary">
+                                    <i class="fa-solid fa-plus"></i> Ajouter une règle
+                                </button>
+                            </div>
+                            <div class="panel-body">
+                                <!-- Add Rule Form -->
+                                <div id="rule-form-container" class="rule-form-box hidden mb-3">
+                                    <h3>Créer une règle de tri</h3>
+                                    <form id="form-rule">
+                                        <div class="form-row">
+                                            <div class="form-group col-6">
+                                                <label for="rule_pattern">Le libellé contient...</label>
+                                                <input type="text" id="rule_pattern" name="rule_pattern" placeholder="ex: NETFLIX" required>
+                                            </div>
+                                            <div class="form-group col-6">
+                                                <label for="rule_category">Associer la catégorie</label>
+                                                <select id="rule_category" name="rule_category" required>
+                                                    <!-- Dynamic options -->
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="form-actions">
+                                            <button type="button" id="btn-cancel-rule" class="btn btn-secondary btn-sm">Annuler</button>
+                                            <button type="submit" class="btn btn-primary btn-sm">Enregistrer la règle</button>
+                                        </div>
+                                    </form>
+                                </div>
+
+                                <div class="table-responsive max-height-300">
+                                    <table class="data-table compact-table" id="table-rules">
+                                        <thead>
+                                            <tr>
+                                                <th>Mot-clé</th>
+                                                <th>Catégorie assignée</th>
+                                                <th>Type</th>
+                                                <th class="text-right">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- Dynamic rows -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SCHEDULER SETTINGS -->
+                        <div class="panel glass-card">
+                            <div class="panel-header">
+                                <h2><i class="fa-solid fa-clock"></i> Planification</h2>
+                            </div>
+                            <div class="panel-body">
+                                <form id="form-settings">
+                                    <div class="form-group">
+                                        <label for="sync_interval_hours">Intervalle de synchronisation automatique (Heures)</label>
+                                        <input type="number" id="sync_interval_hours" name="sync_interval_hours" min="0" max="720" value="24" required>
+                                        <span class="help-text">Saisir 0 pour désactiver la synchronisation automatique en arrière-plan.</span>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary btn-sm btn-block">Enregistrer</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TERMINAL LOGS -->
+                <div class="panel glass-card">
+                    <div class="panel-header header-with-btn">
+                        <h2><i class="fa-solid fa-terminal"></i> Console d'exécution (Logs)</h2>
+                        <button id="btn-clear-logs" class="btn btn-sm btn-danger-outline">
+                            <i class="fa-solid fa-trash-can"></i> Vider la console
+                        </button>
+                    </div>
+                    <div class="panel-body log-panel-body">
+                        <div id="log-terminal" class="log-terminal">
+                            <!-- Logs loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Alert popup container -->
+    <div id="alert-container" class="alert-container"></div>
+
+    <!-- Edit Budget Limit Modal -->
+    <div id="modal-budget" class="modal hidden">
+        <div class="modal-content glass-card">
+            <h3>Modifier la catégorie</h3>
+            <form id="form-edit-budget">
+                <input type="hidden" id="edit-budget-cat-name">
+                <input type="hidden" id="edit-budget-cat-type">
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="edit-budget-new-name">Nom de la catégorie</label>
+                    <input type="text" id="edit-budget-new-name" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit-budget-amount">Budget mensuel (€)</label>
+                    <input type="number" id="edit-budget-amount" step="0.01" min="0" required>
+                </div>
+                <div class="form-group" style="margin-top: 15px;">
+                    <label for="edit-budget-scope">Appliquer ce budget :</label>
+                    <select id="edit-budget-scope" style="width: 100%;">
+                        <option value="recurring" selected>Tous les mois (mensuel récurrent)</option>
+                        <option value="ponctuel">Ce mois-ci uniquement (ponctuel)</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" id="btn-close-budget-modal" class="btn btn-secondary btn-sm">Annuler</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Enregistrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Category Modal -->
+    <div id="modal-add-category" class="modal hidden">
+        <div class="modal-content glass-card">
+            <h3>Ajouter une nouvelle catégorie</h3>
+            <form id="form-add-category">
+                <div class="form-group">
+                    <label for="add-cat-name">Nom de la catégorie</label>
+                    <input type="text" id="add-cat-name" required placeholder="Ex: Netflix">
+                </div>
+                <div class="form-group" style="margin-top: 15px;">
+                    <label for="add-cat-type">Type de catégorie</label>
+                    <select id="add-cat-type" style="width: 100%;">
+                        <option value="Dépense fixe" selected>Dépense fixe</option>
+                        <option value="Dépense variable">Dépense variable</option>
+                        <option value="Revenu">Revenu</option>
+                        <option value="Transfert">Transfert (Virement interne)</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-top: 15px;">
+                    <label for="add-cat-budget">Budget mensuel récurrent par défaut (€)</label>
+                    <input type="number" id="add-cat-budget" step="0.01" min="0" value="0.00" required>
+                </div>
+                <div class="form-actions" style="margin-top: 20px;">
+                    <button type="button" id="btn-close-add-cat-modal" class="btn btn-secondary btn-sm">Annuler</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Créer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Import Transactions Modal -->
+    <div id="modal-import" class="modal hidden">
+        <div class="modal-content glass-card">
+            <h3>Importer des transactions</h3>
+            <form id="form-import-transactions">
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="import-account-id">Compte de destination</label>
+                    <select id="import-account-id" required style="width: 100%;">
+                        <!-- Populated in JS -->
+                    </select>
+                </div>
+                
+                <div id="import-new-account-fields" class="hidden" style="border: 1px solid rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-bottom: 15px; background: rgba(255,255,255,0.02);">
+                    <h4 style="margin-top: 0; margin-bottom: 10px; font-size: 0.95rem; color: var(--primary);"><i class="fa-solid fa-plus-circle"></i> Nouveau compte manuel</h4>
+                    <div class="form-group" style="margin-bottom: 10px;">
+                        <label for="import-new-account-id">Identifiant unique du compte (ex: Numéro ou IBAN)</label>
+                        <input type="text" id="import-new-account-id" placeholder="Ex: HELLO_COURANT">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 10px;">
+                        <label for="import-new-account-label">Nom du compte</label>
+                        <input type="text" id="import-new-account-label" placeholder="Ex: Hello Bank (courant)">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 10px;">
+                        <label for="import-new-account-type">Type de compte</label>
+                        <select id="import-new-account-type" style="width: 100%;">
+                            <option value="courant" selected>Compte Courant</option>
+                            <option value="livret">Livret d'Épargne</option>
+                            <option value="investissement">Compte Titres / PEA</option>
+                            <option value="pret">Prêt / Emprunt</option>
+                            <option value="autre">Autre compte</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="import-new-account-balance">Solde initial (€)</label>
+                        <input type="number" id="import-new-account-balance" step="0.01" value="0.00">
+                    </div>
+                </div>
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="import-file">Fichier (OFX ou CSV)</label>
+                    <input type="file" id="import-file" accept=".ofx,.csv" required style="width: 100%;">
+                    <small class="text-muted" style="display: block; margin-top: 5px; color: rgba(255,255,255,0.5);">
+                        Pour les fichiers CSV, l'importateur détectera automatiquement les colonnes et le format.
+                    </small>
+                </div>
+                <div class="form-actions" style="margin-top: 20px;">
+                    <button type="button" id="btn-close-import-modal" class="btn btn-secondary btn-sm">Annuler</button>
+                    <button type="submit" id="btn-submit-import" class="btn btn-primary btn-sm">Importer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Split Transaction Modal -->
+    <div id="modal-split-transaction" class="modal hidden">
+        <div class="modal-content glass-card" style="max-width: 600px; width: 90%;">
+            <h3>Scinder la transaction</h3>
+            <div id="split-tx-summary" style="margin-bottom: 20px; padding: 12px; border-radius: 6px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); font-size: 0.9rem;">
+                <!-- Filled in JS -->
+            </div>
+            
+            <form id="form-split-transaction">
+                <input type="hidden" id="split-tx-id">
+                
+                <div id="split-parts-container" style="max-height: 300px; overflow-y: auto; margin-bottom: 20px; padding-right: 5px;">
+                    <!-- Split parts generated in JS -->
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <button type="button" id="btn-add-split-part" class="btn btn-secondary btn-sm"><i class="fa-solid fa-plus"></i> Ajouter une part</button>
+                </div>
+                
+                <div id="split-tx-footer" style="margin-top: 20px; padding: 12px; border-radius: 6px; background: rgba(255,255,255,0.03); display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 0.95rem;">
+                    <div>Somme des parts : <span id="split-total-parts-display">0.00 €</span></div>
+                    <div>Reste à répartir : <span id="split-remaining-display">0.00 €</span></div>
+                </div>
+                
+                <div class="form-actions" style="margin-top: 20px;">
+                    <button type="button" id="btn-close-split-modal" class="btn btn-secondary btn-sm">Annuler</button>
+                    <button type="submit" id="btn-submit-split" class="btn btn-primary btn-sm" disabled>Enregistrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+ 
+    <script src="/static/app.js?v=1.6.0"></script>
+</body>
+</html>
