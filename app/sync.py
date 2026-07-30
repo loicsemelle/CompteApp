@@ -55,6 +55,15 @@ def run_sync():
     workdir = os.environ.get("WOOB_WORKDIR", "/data/woob")
     datadir = os.environ.get("WOOB_DATADIR", "/data/woob")
     
+    # Auto-fix backends config permissions to prevent security check failures
+    backends_path = os.path.join(workdir, "backends")
+    if os.path.exists(backends_path):
+        try:
+            os.chmod(backends_path, 0o600)
+        except Exception as perm_err:
+            # Log as warning but proceed
+            print(f"Warning: Could not chmod {backends_path}: {str(perm_err)}")
+            
     try:
         os.makedirs(workdir, exist_ok=True)
         os.makedirs(datadir, exist_ok=True)
