@@ -13,6 +13,15 @@ from woob.exceptions import ActionNeeded, BrowserIncorrectPassword
 
 from app.db import get_backends, get_setting, set_setting, add_log, save_account, save_transactions, get_db_connection
 
+def clean_label(s):
+    return "".join(c for c in s.lower() if c.isalnum())
+
+def labels_are_similar(l1, l2):
+    c1, c2 = clean_label(l1), clean_label(l2)
+    if not c1 or not c2:
+        return False
+    return (c1 in c2) or (c2 in c1)
+
 def update_woob_modules():
     """Run woob update to download or update bank modules."""
     try:
@@ -156,21 +165,28 @@ def run_sync():
                 save_account(account.id, name, account_label, balance_val, acc_type)
                 total_accounts_saved += 1
                 
-                # Delete all pending/coming transactions for this account in the database first
+                # Load existing pending transaction IDs for this account (to clean up missing ones later)
                 conn = get_db_connection()
                 cursor = conn.cursor()
-                cursor.execute("DELETE FROM transactions WHERE account_id = ? AND coming = 1", (account.id,))
-                conn.commit()
+                cursor.execute("SELECT id FROM transactions WHERE account_id = ? AND coming = 1", (account.id,))
+                existing_pending_ids = {row["id"] for row in cursor.fetchall()}
                 conn.close()
 
-                # Load existing transaction IDs for this account
+                # Load existing transaction details for this account
                 conn = get_db_connection()
                 cursor = conn.cursor()
-                cursor.execute("SELECT id FROM transactions WHERE account_id = ?", (account.id,))
-                existing_ids = {row["id"] for row in cursor.fetchall()}
+                cursor.execute("SELECT id, date, amount, label, coming FROM transactions WHERE account_id = ?", (account.id,))
+                existing_txs = []
+                for row in cursor.fetchall():
+                    d = dict(row)
+                    if d.get("coming") is None:
+                        d["coming"] = 0
+                    existing_txs.append(d)
+                existing_ids = {row["id"]: row["coming"] for row in existing_txs}
                 conn.close()
                 
                 incoming_sig_counts = {}
+                seen_pending_ids = set()
                 duplicate_count = 0
                 
                 # Fetch Transactions for this Account
@@ -199,8 +215,36 @@ def run_sync():
                             hash_input = f"{account.id}_{tr_date}_{amount_val}_{tr.label or ''}_{count}"
                             tr_id = "stable_" + hashlib.md5(hash_input.encode('utf-8')).hexdigest()[:16]
                         
-                        # Check if this transaction or any split part of it is already in the database
-                        is_duplicate = (tr_id in existing_ids) or (f"{tr_id}_split_2" in existing_ids)
+                        # Format coming flag
+                        coming_val = 1 if getattr(tr, 'coming', False) else 0
+                        if coming_val:
+                            seen_pending_ids.add(tr_id)
+                        
+                        # Check if this transaction or any split part of it is already in the database by ID
+                        is_duplicate = False
+                        if tr_id in existing_ids:
+                            db_coming = existing_ids[tr_id]
+                            # If already cleared in DB, it is a duplicate.
+                            # If pending in DB and pending incoming, it is a duplicate (no change).
+                            # We only update if it is pending in DB but cleared incoming (db_coming == 1 and coming_val == 0).
+                            if db_coming == 0 or (db_coming == 1 and coming_val == 1):
+                                is_duplicate = True
+                        
+                        if not is_duplicate:
+                            # Check split duplicates (split parts are always cleared, so they always count as duplicates)
+                            if any(x.startswith(f"{tr_id}_split_") for x in existing_ids):
+                                is_duplicate = True
+                        
+                        # Fallback: check if a transaction with same date, amount, and similar label exists (prevents Woob ID shifts)
+                        if not is_duplicate:
+                            for et in existing_txs:
+                                if et["date"] == tr_date and abs(et["amount"] - amount_val) < 0.0001:
+                                    if labels_are_similar(tr.label or "", et["label"]):
+                                        # If the matching transaction in DB is cleared, it's a duplicate.
+                                        # If pending in DB and pending incoming, it's also a duplicate.
+                                        if et["coming"] == 0 or (et["coming"] == 1 and coming_val == 1):
+                                            is_duplicate = True
+                                            break
                         
                         # Stop fetching history if we hit transactions already in database
                         if is_duplicate:
@@ -208,6 +252,7 @@ def run_sync():
                             if duplicate_count >= 5: # Break after 5 duplicates to be safe against minor sorting/pending shifts
                                 add_log("INFO", f"Synchronisation optimisée : transactions déjà présentes détectées pour {account.id}. Fin de la lecture.")
                                 break
+                            continue
                         else:
                             duplicate_count = 0
 
@@ -222,11 +267,8 @@ def run_sync():
                             except ValueError:
                                 pass
                         
-                        # Format amount
-                        amount_val = float(tr.amount) if isinstance(tr.amount, (int, float, Decimal)) else float(str(tr.amount))
-                        
                         # Format coming flag
-                        coming_val = getattr(tr, 'coming', False)
+                        # (Already set early as coming_val)
                         
                         transactions_to_save.append({
                             "id": tr_id,
@@ -240,12 +282,22 @@ def run_sync():
                             "note": "",
                             "checked": 0,
                             "decalage": 0,
-                            "coming": 1 if coming_val else 0
+                            "coming": coming_val
                         })
                         
                     if transactions_to_save:
                         saved_count = save_transactions(transactions_to_save)
                         total_transactions_saved += saved_count
+                        
+                    # Delete obsolete pending transactions that disappeared from the bank feed
+                    obsolete_pending_ids = existing_pending_ids - seen_pending_ids
+                    if obsolete_pending_ids:
+                        conn = get_db_connection()
+                        cursor = conn.cursor()
+                        for op_id in obsolete_pending_ids:
+                            cursor.execute("DELETE FROM transactions WHERE id = ?", (op_id,))
+                        conn.commit()
+                        conn.close()
                         
                 except ActionNeeded as e:
                     auth_err = f"Authentification Forte requise pour {name} (Compte {account.id}) : {str(e)}"
