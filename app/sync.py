@@ -235,10 +235,18 @@ def run_sync():
                             if any(x.startswith(f"{tr_id}_split_") for x in existing_ids):
                                 is_duplicate = True
                         
-                        # Fallback: check if a transaction with same date, amount, and similar label exists (prevents Woob ID shifts)
+                        # Fallback: check if a transaction with same date, amount (reconstructed if split), and similar label exists
                         if not is_duplicate:
                             for et in existing_txs:
-                                if et["date"] == tr_date and abs(et["amount"] - amount_val) < 0.0001:
+                                # We only check non-split parent transactions for base matching
+                                if "_split_" in et["id"]:
+                                    continue
+                                
+                                # Reconstruct original amount if it was split in DB
+                                split_parts = [x for x in existing_txs if x["id"].startswith(f"{et['id']}_split_")]
+                                total_amount = et["amount"] + sum(x["amount"] for x in split_parts)
+                                
+                                if et["date"] == tr_date and abs(total_amount - amount_val) < 0.0001:
                                     if labels_are_similar(tr.label or "", et["label"]):
                                         # If the matching transaction in DB is cleared, it's a duplicate.
                                         # If pending in DB and pending incoming, it's also a duplicate.

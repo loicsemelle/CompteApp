@@ -83,7 +83,8 @@ document.addEventListener("DOMContentLoaded", () => {
                     dashboard: "Tableau de bord",
                     transactions: "Transactions",
                     budgets: "Budgets & Catégories",
-                    epargne: "Épargne & Crédits",
+                    epargne: "Épargne",
+                    credits: "Crédits",
                     synthesis: "Synthèse Annuelle",
                     config: "Configuration & Outils"
                 };
@@ -106,6 +107,8 @@ document.addEventListener("DOMContentLoaded", () => {
             loadBudgetsData();
         } else if (view === "epargne") {
             loadEpargneData();
+        } else if (view === "credits") {
+            loadCreditsData();
         } else if (view === "synthesis") {
             loadSynthesisData();
         } else if (view === "config") {
@@ -135,6 +138,110 @@ document.addEventListener("DOMContentLoaded", () => {
         
         // General Settings Form
         document.getElementById("form-settings").addEventListener("submit", saveGeneralSettings);
+        
+        // Monthly Savings Rates Save Button
+        const btnSaveMonthlyRates = document.getElementById("btn-save-monthly-rates");
+        if (btnSaveMonthlyRates) {
+            btnSaveMonthlyRates.addEventListener("click", saveMonthlySavingsRates);
+        }
+
+        // Loans Event Listeners
+        const btnToggleEditLoan = document.getElementById("btn-toggle-edit-loan");
+        if (btnToggleEditLoan) {
+            btnToggleEditLoan.addEventListener("click", () => {
+                const container = document.getElementById("loan-edit-form-container");
+                if (container) container.classList.toggle("hidden");
+            });
+        }
+
+        const btnAddLoanManual = document.getElementById("btn-add-loan-manual");
+        if (btnAddLoanManual) {
+            btnAddLoanManual.addEventListener("click", () => {
+                selectedLoanKey = "new_manual";
+                
+                document.getElementById("loan-detail-title").innerHTML = `<i class="fa-solid fa-plus"></i> Nouveau Prêt Manuel`;
+                
+                const formContainer = document.getElementById("loan-edit-form-container");
+                if (formContainer) formContainer.classList.remove("hidden");
+                
+                document.getElementById("loan-info-card").innerHTML = `
+                    <p class="text-muted" style="text-align: center; padding: 20px;">Saisissez les paramètres de votre nouveau prêt ci-dessous.</p>
+                `;
+                document.getElementById("loan-schedule-panel").classList.add("hidden");
+                
+                const form = document.getElementById("form-loan-config");
+                if (form) {
+                    form.reset();
+                    document.getElementById("loan-config-id").value = "";
+                }
+                const btnDelete = document.getElementById("btn-delete-loan");
+                if (btnDelete) btnDelete.style.display = "none";
+            });
+        }
+
+        const formLoanConfig = document.getElementById("form-loan-config");
+        if (formLoanConfig) {
+            formLoanConfig.addEventListener("submit", async (e) => {
+                e.preventDefault();
+                
+                const idVal = document.getElementById("loan-config-id").value;
+                const payload = {
+                    name: document.getElementById("loan-config-name").value.trim(),
+                    amount: parseFloat(document.getElementById("loan-config-amount").value),
+                    rate: parseFloat(document.getElementById("loan-config-rate").value),
+                    duration_months: parseInt(document.getElementById("loan-config-duration").value),
+                    start_date: document.getElementById("loan-config-start-date").value,
+                    monthly_payment: parseFloat(document.getElementById("loan-config-payment").value),
+                    insurance: parseFloat(document.getElementById("loan-config-insurance").value) || 0.0,
+                    account_id: document.getElementById("loan-config-account-id").value || null,
+                    id: idVal ? parseInt(idVal) : null
+                };
+                
+                try {
+                    const res = await fetch("/api/loans", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    if (res.ok) {
+                        showToast("Crédit enregistré avec succès.", "success");
+                        await loadCreditsData();
+                    } else {
+                        const data = await res.json();
+                        showToast(data.detail || "Erreur lors de l'enregistrement.", "error");
+                    }
+                } catch (err) {
+                    showToast("Erreur réseau.", "error");
+                }
+            });
+        }
+
+        const btnDeleteLoan = document.getElementById("btn-delete-loan");
+        if (btnDeleteLoan) {
+            btnDeleteLoan.addEventListener("click", async () => {
+                const idVal = document.getElementById("loan-config-id").value;
+                if (!idVal) return;
+                
+                if (!confirm("Voulez-vous vraiment supprimer ce prêt ? Cette opération est irréversible.")) return;
+                
+                try {
+                    const res = await fetch(`/api/loans/${idVal}`, {
+                        method: "DELETE"
+                    });
+                    
+                    if (res.ok) {
+                        showToast("Crédit supprimé.", "success");
+                        selectedLoanKey = null;
+                        await loadCreditsData();
+                    } else {
+                        showToast("Erreur lors de la suppression.", "error");
+                    }
+                } catch (err) {
+                    showToast("Erreur réseau.", "error");
+                }
+            });
+        }
         
         // Bank Connections add/cancel
         document.getElementById("btn-add-account").addEventListener("click", showAddBankForm);
@@ -1280,46 +1387,242 @@ document.addEventListener("DOMContentLoaded", () => {
             const res = await fetch("/api/stats");
             const data = await res.json();
             
+            // Store details in state
+            state.savingsDetails = data.savings_details;
+            
             // 1. Savings Rates & Projection
-            renderSavingsProjections(data.accounts, data.savings_rates);
+            renderSavingsProjections(data.accounts, data.savings_rates, data.savings_details);
             
-            // Filter manual loans: only keep those that match an active/selected credit account (or don't match any synced accounts to keep generic manual ones)
-            const activeLoans = data.loans.filter(loan => {
-                // Find a synced account of type 'pret' that corresponds to this loan
-                const matchingAccount = data.accounts.find(acc => {
-                    if (acc.type !== "pret") return false;
-                    const accLabel = acc.label.toLowerCase();
-                    const loanName = loan.name.toLowerCase();
-                    
-                    const isBourso = (accLabel.includes("bourso") || accLabel.includes("boursorama")) && 
-                                     (loanName.includes("bourso") || loanName.includes("boursorama"));
-                    const isCA = (accLabel.includes("ca ") || accLabel.includes("crédit agricole") || accLabel.includes("credit agricole")) && 
-                                 (loanName.includes("ca ") || loanName.includes("crédit agricole") || loanName.includes("credit agricole") || loanName.includes("habitat"));
-                                 
-                    if (isBourso || isCA) return true;
-                    return accLabel.includes(loanName) || loanName.includes(accLabel);
-                });
-                if (matchingAccount) {
-                    return matchingAccount.include_in_budget_and_list !== 0;
-                }
-                return true; // Keep generic manual loans if they don't match any synced accounts
-            });
-            
-            // 2. Amortization Schedule
-            if (activeLoans.length > 0) {
-                const loan = activeLoans[0]; // Take first active loan
-                renderLoanDetails(loan);
-                renderAmortizationSchedule(loan);
+            // Refresh detailed view if an account is already selected
+            if (selectedSavingsAccountId) {
+                showSavingsAccountDetail(selectedSavingsAccountId);
             } else {
-                document.getElementById("loan-info-card").innerHTML = `<p class="text-muted">Aucun prêt actif sélectionné dans la configuration.</p>`;
-                document.querySelector("#table-loan-schedule tbody").innerHTML = `<tr><td colspan="7" class="text-center text-muted">Aucun prêt actif à afficher.</td></tr>`;
+                const panel = document.getElementById("savings-detail-panel");
+                if (panel) panel.classList.add("hidden");
             }
         } catch (err) {
             showToast("Erreur lors de la lecture des données d'épargne.", "error");
         }
     }
 
-    function renderSavingsProjections(accounts, rates) {
+    let selectedLoanKey = null;
+    let creditsData = null;
+
+    async function loadCreditsData() {
+        try {
+            const res = await fetch("/api/stats");
+            creditsData = await res.json();
+            
+            // Populate bank accounts dropdown for config
+            const selectAcc = document.getElementById("loan-config-account-id");
+            if (selectAcc) {
+                const pretAccounts = creditsData.accounts.filter(a => a.type === "pret");
+                selectAcc.innerHTML = '<option value="">-- Aucun (Prêt manuel) --</option>' + 
+                    pretAccounts.map(a => `<option value="${escapeHTML(a.id)}">${escapeHTML(a.label)} (${formatCurrency(Math.abs(a.balance))})</option>`).join("");
+            }
+            
+            buildLoansList();
+        } catch (err) {
+            showToast("Erreur lors de la lecture des données de crédit.", "error");
+        }
+    }
+
+    function buildLoansList() {
+        const container = document.getElementById("loans-list-container");
+        if (!container) return;
+        
+        container.innerHTML = "";
+        
+        const pretAccounts = creditsData.accounts.filter(a => a.type === "pret" && a.include_in_budget_and_list !== 0);
+        const configuredLoans = creditsData.loans;
+        
+        const listItems = [];
+        
+        // 1. Process configured loans
+        configuredLoans.forEach(loan => {
+            const matchedAccount = loan.account_id ? pretAccounts.find(a => a.id === loan.account_id) : null;
+            listItems.push({
+                key: `manual_${loan.id}`,
+                name: loan.name,
+                loanId: loan.id,
+                accountId: loan.account_id,
+                isConfigured: true,
+                isManual: !loan.account_id,
+                balance: matchedAccount ? matchedAccount.balance : null,
+                loanData: loan,
+                accountData: matchedAccount
+            });
+        });
+        
+        // 2. Process remaining synced accounts that are not configured yet
+        pretAccounts.forEach(acc => {
+            const isAlreadyConfigured = configuredLoans.some(l => l.account_id === acc.id);
+            if (!isAlreadyConfigured) {
+                listItems.push({
+                    key: `synced_${acc.id}`,
+                    name: acc.label,
+                    loanId: null,
+                    accountId: acc.id,
+                    isConfigured: false,
+                    isManual: false,
+                    balance: acc.balance,
+                    loanData: null,
+                    accountData: acc
+                });
+            }
+        });
+        
+        if (listItems.length === 0) {
+            container.innerHTML = `
+                <div style="padding: 20px; text-align: center; opacity: 0.6; font-size: 0.85rem;">
+                    Aucun prêt détecté ou configuré. Cliquez sur "Nouveau" pour en ajouter un.
+                </div>
+            `;
+            document.getElementById("loan-info-card").innerHTML = `<p class="text-muted">Aucun prêt actif.</p>`;
+            document.getElementById("loan-details-panel").classList.add("hidden");
+            document.getElementById("loan-schedule-panel").classList.add("hidden");
+            return;
+        }
+        
+        document.getElementById("loan-details-panel").classList.remove("hidden");
+        
+        // Transition selectedLoanKey from synced_xxx to manual_yyy if it was just configured
+        if (selectedLoanKey && selectedLoanKey.startsWith("synced_")) {
+            const syncedAccId = selectedLoanKey.split("_")[1];
+            const newlyConfigured = listItems.find(item => item.isConfigured && item.accountId === syncedAccId);
+            if (newlyConfigured) {
+                selectedLoanKey = newlyConfigured.key;
+            }
+        }
+        
+        // Default select first item if none is selected
+        if (!selectedLoanKey || !listItems.some(item => item.key === selectedLoanKey)) {
+            selectedLoanKey = listItems[0].key;
+        }
+        
+        listItems.forEach(item => {
+            const div = document.createElement("div");
+            div.className = "clickable-row";
+            div.style.padding = "12px 15px";
+            div.style.borderRadius = "8px";
+            div.style.cursor = "pointer";
+            div.style.marginBottom = "8px";
+            div.style.display = "flex";
+            div.style.flexDirection = "column";
+            div.style.gap = "4px";
+            div.style.transition = "all 0.2s ease";
+            
+            if (item.key === selectedLoanKey) {
+                div.style.background = "rgba(255, 255, 255, 0.08)";
+                div.style.borderLeft = "3px solid var(--primary)";
+            } else {
+                div.style.background = "rgba(255, 255, 255, 0.02)";
+                div.style.borderLeft = "3px solid transparent";
+            }
+            
+            let badgeHtml = "";
+            if (item.isConfigured) {
+                if (item.isManual) {
+                    badgeHtml = `<span class="badge" style="font-size: 0.65rem; background: rgba(59, 130, 246, 0.2); color: #60a5fa; padding: 2px 6px; border-radius: 4px;">Manuel</span>`;
+                } else {
+                    badgeHtml = `<span class="badge" style="font-size: 0.65rem; background: rgba(16, 185, 129, 0.2); color: #34d399; padding: 2px 6px; border-radius: 4px;">Synchro</span>`;
+                }
+            } else {
+                badgeHtml = `<span class="badge" style="font-size: 0.65rem; background: rgba(245, 158, 11, 0.2); color: #fbbf24; padding: 2px 6px; border-radius: 4px;">Non configuré</span>`;
+            }
+            
+            const balVal = item.balance !== null ? formatCurrency(Math.abs(item.balance)) : "N/A";
+            const nameClean = item.name.replace(/Bourso - |CA - /gi, '');
+            
+            div.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <strong style="font-size: 0.85rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 150px;">${escapeHTML(nameClean)}</strong>
+                    ${badgeHtml}
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; opacity: 0.8; margin-top: 2px;">
+                    <span class="text-muted">${item.isManual ? 'Échéancier' : 'Solde restant'}</span>
+                    <strong class="${item.balance !== null ? 'red-text' : ''}">${balVal}</strong>
+                </div>
+            `;
+            
+            div.addEventListener("click", () => {
+                selectedLoanKey = item.key;
+                buildLoansList();
+            });
+            
+            container.appendChild(div);
+        });
+        
+        // Show details of selected loan
+        const activeItem = listItems.find(item => item.key === selectedLoanKey);
+        if (activeItem) {
+            displayLoanDetails(activeItem);
+        }
+    }
+
+    function displayLoanDetails(item) {
+        const titleEl = document.getElementById("loan-detail-title");
+        titleEl.innerHTML = `<i class="fa-solid fa-circle-info"></i> Détails : ${escapeHTML(item.name)}`;
+        
+        // Populate edit form values
+        const formContainer = document.getElementById("loan-edit-form-container");
+        formContainer.classList.add("hidden"); 
+        
+        const form = document.getElementById("form-loan-config");
+        form.reset();
+        
+        const deleteBtn = document.getElementById("btn-delete-loan");
+        
+        if (item.isConfigured) {
+            deleteBtn.style.display = "block";
+            document.getElementById("loan-config-id").value = item.loanId;
+            document.getElementById("loan-config-name").value = item.loanData.name;
+            document.getElementById("loan-config-account-id").value = item.loanData.account_id || "";
+            document.getElementById("loan-config-amount").value = item.loanData.amount;
+            document.getElementById("loan-config-rate").value = item.loanData.rate;
+            document.getElementById("loan-config-duration").value = item.loanData.duration_months;
+            document.getElementById("loan-config-start-date").value = item.loanData.start_date;
+            document.getElementById("loan-config-payment").value = item.loanData.monthly_payment;
+            document.getElementById("loan-config-insurance").value = item.loanData.insurance || "0.00";
+            
+            document.getElementById("loan-info-card").classList.remove("hidden");
+            document.getElementById("loan-schedule-panel").classList.remove("hidden");
+            
+            renderLoanDetailsCombined(item.loanData, item.accountData);
+            renderAmortizationScheduleCombined(item.loanData);
+        } else {
+            // Unconfigured synced loan
+            deleteBtn.style.display = "none";
+            document.getElementById("loan-config-id").value = "";
+            document.getElementById("loan-config-name").value = item.name;
+            document.getElementById("loan-config-account-id").value = item.accountId;
+            document.getElementById("loan-config-amount").value = Math.abs(item.balance); // Pre-fill amount with current negative balance (positive)
+            document.getElementById("loan-config-rate").value = "";
+            document.getElementById("loan-config-duration").value = "";
+            document.getElementById("loan-config-start-date").value = "";
+            document.getElementById("loan-config-payment").value = "";
+            document.getElementById("loan-config-insurance").value = "0.00";
+            
+            document.getElementById("loan-info-card").innerHTML = `
+                <div style="padding: 25px 20px; text-align: center; background: rgba(245, 158, 11, 0.05); border-radius: 8px; border: 1px dashed rgba(245, 158, 11, 0.2);">
+                    <i class="fa-solid fa-triangle-exclamation" style="font-size: 1.8rem; color: #fbbf24; margin-bottom: 10px;"></i>
+                    <p style="margin: 0; font-size: 0.85rem; line-height: 1.5; color: #fbbf24;">
+                        Ce compte emprunt importé n'a pas encore été configuré.<br>
+                        Cliquez sur le bouton <strong>Configurer</strong> en haut à droite pour renseigner ses paramètres et générer son tableau d'amortissement.
+                    </p>
+                </div>
+            `;
+            document.getElementById("loan-schedule-panel").classList.add("hidden");
+            
+            // Auto-expand config form for unconfigured synced loans
+            formContainer.classList.remove("hidden");
+        }
+    }
+
+    let selectedSavingsAccountId = null;
+    let modifiedMonthlyRates = {}; // Store modified rates as { month_num: rate_float }
+
+    function renderSavingsProjections(accounts, rates, savingsDetails) {
         const tbody = document.querySelector("#table-savings-projection tbody");
         
         // Filter savings accounts (type = 'livret' and included)
@@ -1334,21 +1637,20 @@ document.addEventListener("DOMContentLoaded", () => {
         let totalProjectedInterests = 0;
 
         const rowsHtml = livrets.map(liv => {
-            // Match rate by name rules (e.g. if name contains "LEP" -> use LEP rate, etc.)
-            let rateType = "Livret A";
-            const nameUpper = liv.label.toUpperCase();
-            if (nameUpper.includes("LEP")) rateType = "LEP";
-            else if (nameUpper.includes("LDD") || nameUpper.includes("DEVELOPPEMENT DURABLE")) rateType = "LDD";
+            // Find corresponding detail in savingsDetails
+            const detail = savingsDetails ? savingsDetails.find(d => d.account_id === liv.id) : null;
+            const projected = detail ? detail.total_interest : 0.0;
             
-            const rateVal = rates[rateType] !== undefined ? rates[rateType] : 3.0;
-            const projected = liv.balance * (rateVal / 100);
+            const rateVal = detail ? detail.current_rate : 3.0;
             
             totalBalance += liv.balance;
             totalProjectedInterests += projected;
 
+            const isSelected = selectedSavingsAccountId === liv.id ? "style='background: rgba(255,255,255,0.08) !important;'" : "";
+
             return `
-                <tr>
-                    <td><strong>${escapeHTML(liv.label.split(" - ").slice(1).join(" - ") || liv.label)}</strong></td>
+                <tr class="clickable-savings-row" data-account-id="${liv.id}" ${isSelected} style="cursor: pointer;">
+                    <td><strong>${escapeHTML(liv.label.split(" - ").slice(1).join(" - ") || liv.label)}</strong> <i class="fa-solid fa-chevron-right text-muted" style="font-size: 0.75rem; margin-left: 5px;"></i></td>
                     <td><span class="badge badge-muted">${rateVal.toFixed(2)} %</span></td>
                     <td class="text-right"><strong>${formatCurrency(liv.balance)}</strong></td>
                     <td class="text-right green-text"><strong>+${formatCurrency(projected)}</strong></td>
@@ -1366,73 +1668,213 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
 
         tbody.innerHTML = rowsHtml + footerHtml;
+
+        // Attach event listeners
+        const rows = tbody.querySelectorAll(".clickable-savings-row");
+        rows.forEach(row => {
+            row.addEventListener("click", () => {
+                rows.forEach(r => r.style.background = "");
+                row.style.background = "rgba(255,255,255,0.08)";
+                
+                const accId = row.dataset.accountId;
+                showSavingsAccountDetail(accId);
+            });
+        });
     }
 
-    function renderLoanDetails(loan) {
-        const card = document.getElementById("loan-info-card");
+    function showSavingsAccountDetail(accId) {
+        selectedSavingsAccountId = accId;
+        modifiedMonthlyRates = {}; // Reset overrides
         
-        // Compute progress and payments made
+        const detail = state.savingsDetails ? state.savingsDetails.find(d => d.account_id === accId) : null;
+        if (!detail) return;
+        
+        document.getElementById("selected-savings-account-label").textContent = detail.label;
+        document.getElementById("savings-detail-panel").classList.remove("hidden");
+        
+        const tbody = document.querySelector("#table-monthly-savings-detail tbody");
+        tbody.innerHTML = "";
+        
+        detail.months.forEach(m => {
+            const tr = document.createElement("tr");
+            
+            tr.innerHTML = `
+                <td>${m.month_name}</td>
+                <td class="text-right">${formatCurrency(m.balance)}</td>
+                <td>
+                    <div class="form-input-with-suffix" style="width: 120px;">
+                        <input type="number" step="0.01" min="0" class="form-control text-right monthly-rate-input" data-month="${m.month}" value="${m.rate.toFixed(2)}" style="padding-right: 25px;">
+                        <span class="suffix">%</span>
+                    </div>
+                </td>
+                <td class="text-right green-text"><strong class="monthly-interest-display" data-month="${m.month}">+${formatCurrency(m.interest)}</strong></td>
+            `;
+            
+            const input = tr.querySelector(".monthly-rate-input");
+            input.addEventListener("input", () => {
+                const newRate = parseFloat(input.value) || 0.0;
+                modifiedMonthlyRates[m.month] = newRate;
+                
+                // Recalculate interest for this month in real time
+                const newInterest = m.balance * (newRate / 100.0) / 12.0;
+                tr.querySelector(".monthly-interest-display").textContent = `+${formatCurrency(newInterest)}`;
+                
+                // Recalculate total sum in real time
+                recalculateTotalSavingsInterest(detail);
+            });
+            
+            tbody.appendChild(tr);
+        });
+        
+        const totalTr = document.createElement("tr");
+        totalTr.style.background = "rgba(255,255,255,0.03)";
+        totalTr.style.borderTop = "2px solid var(--border-glass)";
+        totalTr.innerHTML = `
+            <td><strong>TOTAL PROJETÉ</strong></td>
+            <td class="text-right">-</td>
+            <td>-</td>
+            <td class="text-right green-text"><strong id="total-monthly-savings-interest">+${formatCurrency(detail.total_interest)}</strong></td>
+        `;
+        tbody.appendChild(totalTr);
+    }
+
+    function recalculateTotalSavingsInterest(detail) {
+        let total = 0.0;
+        detail.months.forEach(m => {
+            const rate = modifiedMonthlyRates[m.month] !== undefined ? modifiedMonthlyRates[m.month] : m.rate;
+            total += m.balance * (rate / 100.0) / 12.0;
+        });
+        document.getElementById("total-monthly-savings-interest").textContent = `+${formatCurrency(total)}`;
+    }
+
+    async function saveMonthlySavingsRates() {
+        if (!selectedSavingsAccountId) return;
+        
+        const currentYear = new Date().getFullYear();
+        const promises = [];
+        
+        for (const [month, rate] of Object.entries(modifiedMonthlyRates)) {
+            promises.push(
+                fetch("/api/monthly-savings-rates", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        account_id: selectedSavingsAccountId,
+                        year: currentYear,
+                        month: parseInt(month),
+                        rate: rate
+                    })
+                })
+            );
+        }
+        
+        if (promises.length === 0) {
+            showToast("Aucun changement de taux à enregistrer.", "info");
+            return;
+        }
+        
+        try {
+            await Promise.all(promises);
+            showToast("Taux mensuels enregistrés avec succès.", "success");
+            
+            // Reload and refresh
+            const res = await fetch("/api/stats");
+            const data = await res.json();
+            state.savingsDetails = data.savings_details;
+            
+            renderSavingsProjections(data.accounts, data.savings_rates, data.savings_details);
+            showSavingsAccountDetail(selectedSavingsAccountId);
+        } catch (err) {
+            showToast("Erreur lors de l'enregistrement des taux mensuels.", "error");
+        }
+    }
+
+    function renderLoanDetailsCombined(loan, account) {
+        const card = document.getElementById("loan-info-card");
+        if (!card) return;
+        
         const startDate = new Date(loan.start_date);
         const today = new Date();
         const elapsedMonths = Math.max(0, (today.getFullYear() - startDate.getFullYear()) * 12 + (today.getMonth() - startDate.getMonth()));
-        const remainingMonths = Math.max(0, loan.duration_months - elapsedMonths);
         
-        const schedule = generateAmortizationSchedule(loan);
-        const currentPay = schedule[Math.min(schedule.length - 1, elapsedMonths)] || { remaining: 0 };
-        const capitalRebuilt = loan.amount - currentPay.remaining;
+        const schedule = generateAmortizationScheduleCombined(loan);
+        
+        let remainingCapital = 0;
+        let isSyncedReal = false;
+        
+        if (account) {
+            remainingCapital = Math.abs(account.balance);
+            isSyncedReal = true;
+        } else {
+            const currentPay = schedule[Math.min(schedule.length - 1, elapsedMonths)] || { remaining: 0 };
+            remainingCapital = currentPay.remaining;
+        }
+        
+        const capitalRebuilt = Math.max(0, loan.amount - remainingCapital);
         const progressPercent = Math.min(100, Math.round((capitalRebuilt / loan.amount) * 100));
+        const insuranceVal = loan.insurance || 0;
 
         card.innerHTML = `
-            <div class="loan-meta-grid">
+            <div class="loan-meta-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px;">
                 <div class="loan-meta-item">
-                    <span class="lbl">Nom du crédit</span>
-                    <span class="val">${escapeHTML(loan.name)}</span>
+                    <span class="lbl" style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 2px;">Compte associé</span>
+                    <strong class="val" style="font-size: 0.9rem; color: var(--primary);">${account ? escapeHTML(account.label) : 'Aucun (Prêt manuel)'}</strong>
                 </div>
                 <div class="loan-meta-item">
-                    <span class="lbl">Capital emprunté</span>
-                    <span class="val">${formatCurrency(loan.amount)}</span>
+                    <span class="lbl" style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 2px;">Capital emprunté d'origine</span>
+                    <span class="val" style="font-size: 0.9rem; font-weight: 600;">${formatCurrency(loan.amount)}</span>
                 </div>
                 <div class="loan-meta-item">
-                    <span class="lbl">Mensualité (assurance incl.)</span>
-                    <span class="val font-semibold">${formatCurrency(loan.monthly_payment)} / mois</span>
+                    <span class="lbl" style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 2px;">Mensualité (hors assurance)</span>
+                    <span class="val" style="font-size: 0.9rem;">${formatCurrency(loan.monthly_payment)} / mois</span>
                 </div>
                 <div class="loan-meta-item">
-                    <span class="lbl">Taux d'intérêt annuel</span>
-                    <span class="val">${loan.rate.toFixed(2)} % (fixe)</span>
+                    <span class="lbl" style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 2px;">Assurance mensuelle</span>
+                    <span class="val" style="font-size: 0.9rem;">${formatCurrency(insuranceVal)} / mois</span>
                 </div>
                 <div class="loan-meta-item">
-                    <span class="lbl">Remboursé à ce jour</span>
-                    <span class="val green-text">${formatCurrency(capitalRebuilt)}</span>
+                    <span class="lbl" style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 2px;">Taux d'intérêt annuel</span>
+                    <span class="val" style="font-size: 0.9rem;">${loan.rate.toFixed(2)} %</span>
                 </div>
                 <div class="loan-meta-item">
-                    <span class="lbl">Capital Restant Dû</span>
-                    <span class="val red-text">${formatCurrency(currentPay.remaining)}</span>
+                    <span class="lbl" style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 2px;">Remboursé à ce jour</span>
+                    <span class="val green-text" style="font-size: 0.9rem; font-weight: 600;">${formatCurrency(capitalRebuilt)}</span>
+                </div>
+                <div class="loan-meta-item">
+                    <span class="lbl" style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 2px;">Capital restant dû ${isSyncedReal ? '(Réel)' : '(Théorique)'}</span>
+                    <span class="val red-text" style="font-size: 0.9rem; font-weight: 600;">${formatCurrency(remainingCapital)}</span>
+                </div>
+                <div class="loan-meta-item">
+                    <span class="lbl" style="font-size: 0.75rem; opacity: 0.7; display: block; margin-bottom: 2px;">Mensualité totale payée</span>
+                    <span class="val" style="font-size: 0.9rem; font-weight: 600;">${formatCurrency(loan.monthly_payment + insuranceVal)} / mois</span>
                 </div>
             </div>
             
-            <div class="loan-progress-box mt-3">
-                <div class="loan-progress-label">
-                    <span>Avancement remboursement</span>
-                    <span>${progressPercent}% (${elapsedMonths}/${loan.duration_months} mois)</span>
+            <div class="loan-progress-box" style="margin-top: 20px;">
+                <div class="loan-progress-label" style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 5px;">
+                    <span>Progression du remboursement</span>
+                    <strong>${progressPercent}% (${Math.min(loan.duration_months, elapsedMonths)} / ${loan.duration_months} mois)</strong>
                 </div>
-                <div class="progress-track">
-                    <div class="progress-fill fill-green" style="width: ${progressPercent}%"></div>
+                <div class="progress-track" style="height: 10px; background: rgba(255,255,255,0.05); border-radius: 5px; overflow: hidden;">
+                    <div class="progress-fill fill-green" style="width: ${progressPercent}%; height: 100%; background: var(--success); transition: width 0.3s ease;"></div>
                 </div>
             </div>
         `;
     }
 
-    function renderAmortizationSchedule(loan) {
+    function renderAmortizationScheduleCombined(loan) {
         const tbody = document.querySelector("#table-loan-schedule tbody");
-        const schedule = generateAmortizationSchedule(loan);
+        if (!tbody) return;
         
-        // Find current month index to highlight the active amortization row
+        const schedule = generateAmortizationScheduleCombined(loan);
+        
         const startDate = new Date(loan.start_date);
         const today = new Date();
-        const currentIdx = Math.max(0, (today.getFullYear() - startDate.getFullYear()) * 12 + (today.getMonth() - startDate.getMonth()));
+        const currentIdx = Math.max(0, (today.getFullYear() - startDate.getFullYear()) * 12 + (today.getMonth() - startDate.getMonth())) - 1;
 
         tbody.innerHTML = schedule.map((row, idx) => {
-            const highlightClass = idx === currentIdx ? "style='background: rgba(95, 90, 246, 0.1); border-left: 3px solid var(--primary)'" : "";
+            const isCurrent = idx === currentIdx;
+            const highlightClass = isCurrent ? "style='background: rgba(95, 90, 246, 0.1); border-left: 3px solid var(--primary)'" : "";
             
             const dateStr = new Date(row.date).toLocaleDateString("fr-FR", { month: "short", year: "numeric" });
             
@@ -1444,25 +1886,24 @@ document.addEventListener("DOMContentLoaded", () => {
                     <td class="text-right text-muted">${formatCurrency(row.interest)}</td>
                     <td class="text-right text-muted">${formatCurrency(row.insurance)}</td>
                     <td class="text-right"><strong>${formatCurrency(row.payment)}</strong></td>
-                    <td class="text-right ${idx === currentIdx ? "red-text" : "text-muted"}"><strong>${formatCurrency(row.remaining)}</strong></td>
+                    <td class="text-right ${isCurrent ? "red-text" : "text-muted"}"><strong>${formatCurrency(row.remaining)}</strong></td>
                 </tr>
             `;
         }).join("");
     }
 
-    function generateAmortizationSchedule(loan) {
+    function generateAmortizationScheduleCombined(loan) {
         const schedule = [];
         let remaining = loan.amount;
         
-        // Standard amortization formula parameters
         const r = (loan.rate / 100) / 12;
         const n = loan.duration_months;
         const m = loan.monthly_payment;
+        const ins = loan.insurance || 0.0;
         const startDate = new Date(loan.start_date);
         
         for (let i = 1; i <= n; i++) {
             const interest = remaining * r;
-            // Standard principal is monthly payment minus interest
             let principal = m - interest;
             
             if (remaining < principal) {
@@ -1479,8 +1920,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 date: date.toISOString().split('T')[0],
                 interest: interest,
                 principal: principal,
-                insurance: 0.0,
-                payment: interest + principal,
+                insurance: ins,
+                payment: interest + principal + ins,
                 remaining: Math.max(0, remaining)
             });
             

@@ -20,6 +20,7 @@ from app.db import (
     get_accounts,
     update_account_type,
     update_account_budget_flag,
+    update_account_rate,
     get_categories,
     save_category,
     delete_category,
@@ -35,7 +36,9 @@ from app.db import (
     save_loan,
     delete_loan,
     get_db_connection,
-    save_monthly_budget
+    save_monthly_budget,
+    get_monthly_savings_rates,
+    save_monthly_savings_rate
 )
 from app.sync import run_sync, update_woob_modules
 from app.scheduler import start_scheduler, stop_scheduler, configure_job
@@ -99,6 +102,8 @@ class LoanPayload(BaseModel):
     duration_months: int = Field(..., description="Loan duration in months")
     start_date: str = Field(..., description="Payout date (YYYY-MM-DD)")
     monthly_payment: float = Field(..., description="Monthly payment amount")
+    insurance: float = Field(0.0, description="Monthly insurance payment amount")
+    account_id: Optional[str] = Field(None, description="Linked synced account ID")
     id: Optional[int] = Field(None, description="Optional ID for updates")
 
 # Lifecycle events
@@ -451,6 +456,20 @@ async def api_rename_account(account_id: str, payload: RenameAccountPayload):
 
 
 # Savings Rates
+class MonthlySavingsRatePayload(BaseModel):
+    account_id: str
+    year: int
+    month: int
+    rate: float
+
+@app.post("/api/monthly-savings-rates")
+async def edit_monthly_savings_rate(payload: MonthlySavingsRatePayload):
+    try:
+        save_monthly_savings_rate(payload.account_id, payload.year, payload.month, payload.rate)
+        return {"status": "success", "message": "Taux d'intérêt mensuel enregistré."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/savings-rates")
 async def get_all_savings_rates():
     return get_savings_rates()
@@ -478,6 +497,8 @@ async def add_or_edit_loan(payload: LoanPayload):
             duration_months=payload.duration_months,
             start_date=payload.start_date,
             monthly_payment=payload.monthly_payment,
+            insurance=payload.insurance,
+            account_id=payload.account_id,
             loan_id=payload.id
         )
         return {"status": "success", "message": "Crédit enregistré."}
@@ -502,7 +523,7 @@ async def get_financial_stats(year: Optional[int] = None):
     cursor = conn.cursor()
     
     # 1. Accounts summary
-    cursor.execute("SELECT id, backend_name, label, balance, type, last_sync, include_in_budget_and_list FROM accounts")
+    cursor.execute("SELECT id, backend_name, label, balance, type, last_sync, include_in_budget_and_list, rate FROM accounts")
     accounts = [dict(r) for r in cursor.fetchall()]
     
     # 2. Categories budget
@@ -593,8 +614,77 @@ async def get_financial_stats(year: Optional[int] = None):
     savings_rates = {row["account_type"]: row["rate"] for row in cursor.fetchall()}
     
     # 5. Loan details
-    cursor.execute("SELECT id, name, amount, rate, duration_months, start_date, monthly_payment FROM loan_details")
+    cursor.execute("SELECT id, name, amount, rate, duration_months, start_date, monthly_payment, insurance, account_id FROM loan_details")
     loans = [dict(row) for row in cursor.fetchall()]
+    
+    # 5b. Reconstruct monthly balances and calculate monthly interests for livret accounts
+    import calendar
+    savings_details = []
+    
+    # Load all monthly savings rates overrides
+    cursor.execute("SELECT account_id, year, month, rate FROM monthly_savings_rates WHERE year = ?", (year,))
+    monthly_overrides = {}
+    for row in cursor.fetchall():
+        monthly_overrides[(row["account_id"], row["month"])] = row["rate"]
+        
+    for acc in accounts:
+        if acc["type"] != "livret" or acc["include_in_budget_and_list"] == 0:
+            continue
+            
+        # Get all transactions for this account
+        cursor.execute("SELECT date, amount FROM transactions WHERE account_id = ? ORDER BY date DESC", (acc["id"],))
+        txs = [dict(r) for r in cursor.fetchall()]
+        
+        # Determine base rate dynamically based on label matching against global rates
+        rate_type = "Livret A"
+        lbl_upper = acc["label"].upper()
+        if "LEP" in lbl_upper:
+            rate_type = "LEP"
+        elif "LDD" in lbl_upper or "DEVELOPPEMENT DURABLE" in lbl_upper:
+            rate_type = "LDD"
+            
+        base_rate = savings_rates.get(rate_type, 3.0)
+        
+        months_detail = []
+        total_interest = 0.0
+        current_balance = acc["balance"]
+        
+        for m_idx in range(1, 13):
+            # Calculate the end date of this month
+            last_day = calendar.monthrange(year, m_idx)[1]
+            end_date_str = f"{year}-{m_idx:02d}-{last_day:02d}"
+            
+            # Reconstruct balance at the end of the month
+            diff = sum(tx["amount"] for tx in txs if tx["date"] > end_date_str)
+            month_end_balance = current_balance - diff
+            
+            # Get interest rate (either override or base rate)
+            rate_val = monthly_overrides.get((acc["id"], m_idx), base_rate)
+            
+            # Calculate interest of this month
+            month_interest = month_end_balance * (rate_val / 100.0) / 12.0
+            
+            total_interest += month_interest
+            
+            months_detail.append({
+                "month": m_idx,
+                "month_name": ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"][m_idx - 1],
+                "balance": round(month_end_balance, 2),
+                "rate": round(rate_val, 2),
+                "interest": round(month_interest, 2)
+            })
+            
+        # Determine rate of the current month
+        current_month = datetime.now().month
+        current_rate = next((m["rate"] for m in months_detail if m["month"] == current_month), base_rate)
+            
+        savings_details.append({
+            "account_id": acc["id"],
+            "label": acc["label"],
+            "months": months_detail,
+            "current_rate": round(current_rate, 2),
+            "total_interest": round(total_interest, 2)
+        })
     
     # 6. Find all available years from transactions
     cursor.execute("SELECT DISTINCT SUBSTR(date, 1, 4) as yr FROM transactions")
@@ -615,6 +705,7 @@ async def get_financial_stats(year: Optional[int] = None):
         "budget_sums": budget_sums,
         "savings_rates": savings_rates,
         "loans": loans,
+        "savings_details": savings_details,
         "available_years": available_years
     }
 

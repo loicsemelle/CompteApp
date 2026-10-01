@@ -13,7 +13,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom stylesheet -->
-    <link rel="stylesheet" href="/static/style.css?v=1.6.0">
+    <link rel="stylesheet" href="/static/style.css?v=1.7.0">
 </head>
 <body>
     <div class="background-decor">
@@ -44,7 +44,10 @@
                     <i class="fa-solid fa-basket-shopping"></i> Budgets & Catégories
                 </button>
                 <button class="nav-btn" data-view="epargne">
-                    <i class="fa-solid fa-piggy-bank"></i> Épargne & Crédits
+                    <i class="fa-solid fa-piggy-bank"></i> Épargne
+                </button>
+                <button class="nav-btn" data-view="credits">
+                    <i class="fa-solid fa-percent"></i> Crédits
                 </button>
                 <button class="nav-btn" data-view="synthesis">
                     <i class="fa-solid fa-table-list"></i> Synthèse Annuelle
@@ -321,46 +324,152 @@
                 </div>
             </section>
 
-            <!-- ================= VIEW: EPARGNE & CREDITS ================= -->
+            <!-- ================= VIEW: EPARGNE ================= -->
             <section id="view-epargne" class="view-section hidden">
-                <div class="dashboard-grid">
-                    <!-- Tableau Epargne et Intérêts -->
-                    <div class="panel glass-card grid-col-6">
-                        <div class="panel-header">
-                            <h2><i class="fa-solid fa-piggy-bank"></i> Projection d'Intérêts Annuels</h2>
+                <div class="panel glass-card">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-piggy-bank"></i> Projection d'Intérêts Annuels</h2>
+                    </div>
+                    <div class="panel-body">
+                        <div class="help-text-sm" style="margin-bottom: 12px; font-size: 0.8rem; opacity: 0.8;">
+                            Cliquez sur une ligne pour afficher et ajuster le détail mensuel des intérêts.
                         </div>
-                        <div class="panel-body">
-                            <table class="data-table" id="table-savings-projection">
+                        <table class="data-table" id="table-savings-projection">
+                            <thead>
+                                <tr>
+                                    <th>Livret</th>
+                                    <th>Taux Actuel</th>
+                                    <th class="text-right">Solde Actuel</th>
+                                    <th class="text-right">Intérêts Projetés (Cumulés)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Dynamic rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Detailed Month-by-Month Savings Table -->
+                <div class="panel glass-card mt-4 hidden" id="savings-detail-panel" style="margin-top: 25px;">
+                    <div class="panel-header header-with-btn">
+                        <h2><i class="fa-solid fa-list-ol"></i> Détail Mensuel & Ajustement des Taux : <span id="selected-savings-account-label" class="text-primary"></span></h2>
+                        <button id="btn-save-monthly-rates" class="btn btn-sm btn-primary">
+                            <i class="fa-solid fa-floppy-disk"></i> Enregistrer les taux modifiés
+                        </button>
+                    </div>
+                    <div class="panel-body">
+                        <div class="help-text-sm" style="margin-bottom: 15px; font-size: 0.8rem; opacity: 0.8; line-height: 1.4;">
+                            Les intérêts sont calculés sur le solde de fin de mois : <code>Solde * (Taux / 12)</code>. Vous pouvez modifier le taux d'un mois spécifique si les taux officiels ou promotionnels ont changé, puis cliquer sur Enregistrer.
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table" id="table-monthly-savings-detail">
                                 <thead>
                                     <tr>
-                                        <th>Livret</th>
-                                        <th>Taux</th>
-                                        <th class="text-right">Solde Actuel</th>
-                                        <th class="text-right">Intérêts Projetés</th>
+                                        <th>Mois</th>
+                                        <th class="text-right">Solde estimé (Fin de mois)</th>
+                                        <th style="width: 180px;">Taux d'intérêt annuel (%)</th>
+                                        <th class="text-right">Intérêts générés (Estimés)</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <!-- Dynamic rows -->
+                                    <!-- Populated dynamically -->
                                 </tbody>
                             </table>
                         </div>
                     </div>
+                </div>
+            </section>
 
-                    <!-- Crédit Info Card -->
-                    <div class="panel glass-card grid-col-6">
-                        <div class="panel-header">
-                            <h2><i class="fa-solid fa-percent"></i> Crédit Boursorama en cours</h2>
+            <!-- ================= VIEW: CREDITS ================= -->
+            <section id="view-credits" class="view-section hidden">
+                <div class="dashboard-grid">
+                    <!-- Left Column: List of Loans -->
+                    <div class="panel glass-card grid-col-4">
+                        <div class="panel-header header-with-btn">
+                            <h2><i class="fa-solid fa-hand-holding-dollar"></i> Mes Prêts</h2>
+                            <button id="btn-add-loan-manual" class="btn btn-sm btn-secondary">
+                                <i class="fa-solid fa-plus"></i> Nouveau
+                            </button>
+                        </div>
+                        <div class="panel-body" style="padding: 10px 0;">
+                            <div class="loans-list" id="loans-list-container" style="display: flex; flex-direction: column; gap: 8px;">
+                                <!-- Dynamic list of synced and manual loans -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Loan Details & Config -->
+                    <div class="panel glass-card grid-col-8" id="loan-details-panel">
+                        <div class="panel-header header-with-btn">
+                            <h2 id="loan-detail-title"><i class="fa-solid fa-circle-info"></i> Détails du Prêt</h2>
+                            <button id="btn-toggle-edit-loan" class="btn btn-sm btn-secondary">
+                                <i class="fa-solid fa-gear"></i> Configurer
+                            </button>
                         </div>
                         <div class="panel-body">
+                            <!-- Theoretical vs Actual Progress Card -->
                             <div class="loan-info-container" id="loan-info-card">
-                                <!-- Loan details and progress -->
+                                <!-- Dynamic loan meta & progress bar -->
+                            </div>
+
+                            <!-- Edit Form (Toggled via "Configurer" button) -->
+                            <div id="loan-edit-form-container" class="hidden" style="margin-top: 20px; border-top: 1px solid var(--border-glass); padding-top: 20px;">
+                                <form id="form-loan-config">
+                                    <input type="hidden" id="loan-config-id">
+                                    <div class="form-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                                        <div class="form-group">
+                                            <label class="form-label">Nom du prêt</label>
+                                            <input type="text" id="loan-config-name" class="form-control" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">Compte bancaire associé (facultatif)</label>
+                                            <select id="loan-config-account-id" class="form-control">
+                                                <option value="">-- Aucun (Prêt manuel) --</option>
+                                                <!-- Dyn accounts -->
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">Capital emprunté (€)</label>
+                                            <input type="number" step="0.01" id="loan-config-amount" class="form-control" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">Taux d'intérêt annuel (%)</label>
+                                            <input type="number" step="0.001" id="loan-config-rate" class="form-control" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">Durée totale (mois)</label>
+                                            <input type="number" id="loan-config-duration" class="form-control" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">Date d'obtention / début</label>
+                                            <input type="date" id="loan-config-start-date" class="form-control" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">Mensualité (hors assurance) (€)</label>
+                                            <input type="number" step="0.01" id="loan-config-payment" class="form-control" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label">Assurance mensuelle (€)</label>
+                                            <input type="number" step="0.01" id="loan-config-insurance" class="form-control" value="0.00">
+                                        </div>
+                                    </div>
+                                    <div class="form-actions" style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center;">
+                                        <button type="button" id="btn-delete-loan" class="btn btn-danger">
+                                            <i class="fa-solid fa-trash"></i> Supprimer
+                                        </button>
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="fa-solid fa-floppy-disk"></i> Enregistrer
+                                        </button>
+                                    </div>
+                                </form>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- Tableau Amortissement -->
-                <div class="panel glass-card">
+                <div class="panel glass-card mt-4" id="loan-schedule-panel" style="margin-top: 25px;">
                     <div class="panel-header">
                         <h2><i class="fa-solid fa-table-cells"></i> Tableau d'Amortissement du Prêt</h2>
                     </div>
@@ -374,7 +483,7 @@
                                         <th class="text-right">Principal amorti</th>
                                         <th class="text-right">Intérêts payés</th>
                                         <th class="text-right">Assurance</th>
-                                        <th class="text-right">Mensualité</th>
+                                        <th class="text-right">Mensualité Totale</th>
                                         <th class="text-right">Capital restant dû</th>
                                     </tr>
                                 </thead>
@@ -779,6 +888,6 @@
         </div>
     </div>
  
-    <script src="/static/app.js?v=1.6.0"></script>
+    <script src="/static/app.js?v=1.7.0"></script>
 </body>
 </html>

@@ -57,12 +57,18 @@ def init_db():
         balance REAL NOT NULL,
         type TEXT DEFAULT 'courant', -- courant, livret, investissement, pret, autre
         last_sync TEXT,
-        include_in_budget_and_list INTEGER DEFAULT 1
+        include_in_budget_and_list INTEGER DEFAULT 1,
+        rate REAL DEFAULT 3.0
     )
     """)
     
     try:
         cursor.execute("ALTER TABLE accounts ADD COLUMN include_in_budget_and_list INTEGER DEFAULT 1")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE accounts ADD COLUMN rate REAL DEFAULT 3.0")
     except sqlite3.OperationalError:
         pass
 
@@ -126,6 +132,18 @@ def init_db():
     )
     """)
 
+    # Table for month-specific savings rates
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS monthly_savings_rates (
+        account_id TEXT NOT NULL,
+        year INTEGER NOT NULL,
+        month INTEGER NOT NULL,
+        rate REAL NOT NULL,
+        PRIMARY KEY (account_id, year, month),
+        FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+    )
+    """)
+
     # 9. Table for loan details
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS loan_details (
@@ -135,9 +153,22 @@ def init_db():
         rate REAL NOT NULL,
         duration_months INTEGER NOT NULL,
         start_date TEXT NOT NULL,
-        monthly_payment REAL NOT NULL
+        monthly_payment REAL NOT NULL,
+        insurance REAL DEFAULT 0.0,
+        account_id TEXT,
+        FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE SET NULL
     )
     """)
+    
+    try:
+        cursor.execute("ALTER TABLE loan_details ADD COLUMN insurance REAL DEFAULT 0.0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE loan_details ADD COLUMN account_id TEXT")
+    except sqlite3.OperationalError:
+        pass
 
     # Insert default categories
     default_categories = [
@@ -404,15 +435,23 @@ def save_account(account_id, backend_name, label, balance, account_type="courant
     cursor = conn.cursor()
     last_sync = datetime.now().isoformat()
     
+    # Guess default rate by label name
+    default_rate = 3.0
+    lbl_upper = label.upper()
+    if "LEP" in lbl_upper:
+        default_rate = 4.0
+    elif "LDD" in lbl_upper or "DEVELOPPEMENT DURABLE" in lbl_upper:
+        default_rate = 3.0
+    
     cursor.execute("""
-    INSERT INTO accounts (id, backend_name, label, balance, type, last_sync)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO accounts (id, backend_name, label, balance, type, last_sync, rate)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
         backend_name=excluded.backend_name,
         balance=excluded.balance,
         type=CASE WHEN accounts.type = 'courant' AND excluded.type != 'courant' THEN excluded.type ELSE accounts.type END,
         last_sync=excluded.last_sync
-    """, (account_id, backend_name, label, balance, account_type, last_sync))
+    """, (account_id, backend_name, label, balance, account_type, last_sync, default_rate))
     
     conn.commit()
     conn.close()
@@ -420,7 +459,7 @@ def save_account(account_id, backend_name, label, balance, account_type="courant
 def get_accounts():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, backend_name, label, balance, type, last_sync, include_in_budget_and_list FROM accounts")
+    cursor.execute("SELECT id, backend_name, label, balance, type, last_sync, include_in_budget_and_list, rate FROM accounts")
     rows = cursor.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -702,25 +741,25 @@ def save_savings_rate(account_type, rate):
 def get_loans():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, name, amount, rate, duration_months, start_date, monthly_payment FROM loan_details")
+    cursor.execute("SELECT id, name, amount, rate, duration_months, start_date, monthly_payment, insurance, account_id FROM loan_details")
     rows = cursor.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
-def save_loan(name, amount, rate, duration_months, start_date, monthly_payment, loan_id=None):
+def save_loan(name, amount, rate, duration_months, start_date, monthly_payment, insurance=0.0, account_id=None, loan_id=None):
     conn = get_db_connection()
     cursor = conn.cursor()
     if loan_id:
         cursor.execute("""
         UPDATE loan_details SET
-            name=?, amount=?, rate=?, duration_months=?, start_date=?, monthly_payment=?
+            name=?, amount=?, rate=?, duration_months=?, start_date=?, monthly_payment=?, insurance=?, account_id=?
         WHERE id=?
-        """, (name, amount, rate, duration_months, start_date, monthly_payment, loan_id))
+        """, (name, amount, rate, duration_months, start_date, monthly_payment, insurance, account_id, loan_id))
     else:
         cursor.execute("""
-        INSERT INTO loan_details (name, amount, rate, duration_months, start_date, monthly_payment)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """, (name, amount, rate, duration_months, start_date, monthly_payment))
+        INSERT INTO loan_details (name, amount, rate, duration_months, start_date, monthly_payment, insurance, account_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (name, amount, rate, duration_months, start_date, monthly_payment, insurance, account_id))
     conn.commit()
     conn.close()
 
@@ -906,6 +945,35 @@ def rename_account(account_id, new_label):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("UPDATE accounts SET label = ? WHERE id = ?", (new_label, account_id))
+    conn.commit()
+    conn.close()
+
+def get_monthly_savings_rates(account_id, year):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT month, rate FROM monthly_savings_rates 
+        WHERE account_id = ? AND year = ?
+    """, (account_id, year))
+    rows = cursor.fetchall()
+    conn.close()
+    return {row["month"]: row["rate"] for row in rows}
+
+def save_monthly_savings_rate(account_id, year, month, rate):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO monthly_savings_rates (account_id, year, month, rate)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(account_id, year, month) DO UPDATE SET rate=excluded.rate
+    """, (account_id, year, month, rate))
+    conn.commit()
+    conn.close()
+
+def update_account_rate(account_id, rate):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE accounts SET rate = ? WHERE id = ?", (rate, account_id))
     conn.commit()
     conn.close()
 
