@@ -38,7 +38,9 @@ from app.db import (
     get_db_connection,
     save_monthly_budget,
     get_monthly_savings_rates,
-    save_monthly_savings_rate
+    save_monthly_savings_rate,
+    create_manual_transaction,
+    delete_transaction
 )
 from app.sync import run_sync, update_woob_modules
 from app.scheduler import start_scheduler, stop_scheduler, configure_job
@@ -90,6 +92,17 @@ class TransactionUpdatePayload(BaseModel):
     note: Optional[str] = None
     checked: Optional[bool] = None
     decalage: Optional[bool] = None
+
+class CreateTransactionPayload(BaseModel):
+    account_id: str = Field(..., description="Target account ID")
+    date: str = Field(..., description="Transaction date (YYYY-MM-DD)")
+    label: str = Field(..., description="Transaction label / description")
+    amount: float = Field(..., description="Amount in EUR (positive for income, negative for expense)")
+    category: Optional[str] = None
+    type: Optional[str] = None
+    note: Optional[str] = None
+    checked: bool = False
+    decalage: bool = False
 
 class SavingsRatePayload(BaseModel):
     account_type: str = Field(..., description="Savings account type: Livret A, LDD, LEP")
@@ -334,6 +347,34 @@ async def get_all_transactions(
         date_to=date_to
     )
     return {"transactions": txs, "total": total}
+
+@app.post("/api/transactions")
+async def api_create_transaction(payload: CreateTransactionPayload):
+    try:
+        tr_id = create_manual_transaction(
+            account_id=payload.account_id,
+            date=payload.date,
+            label=payload.label.strip(),
+            amount=payload.amount,
+            category=payload.category,
+            tr_type=payload.type,
+            note=payload.note or "",
+            checked=payload.checked,
+            decalage=payload.decalage
+        )
+        return {"status": "success", "message": "Transaction ajoutée avec succès.", "id": tr_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/transactions/{transaction_id}")
+async def api_delete_transaction(transaction_id: str):
+    try:
+        delete_transaction(transaction_id)
+        return {"status": "success", "message": "Transaction supprimée avec succès."}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.put("/api/transactions/{transaction_id}")
 async def edit_transaction(transaction_id: str, payload: TransactionUpdatePayload):

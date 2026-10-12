@@ -140,7 +140,8 @@ def run_sync():
             
         add_log("INFO", f"Récupération des données pour le compte : {name}...")
         try:
-            for account in backend.iter_accounts():
+            accounts_list = list(backend.iter_accounts())
+            for account in accounts_list:
                 account_label = f"{name} - {account.label}"
                 add_log("INFO", f"Lecture du compte : {account_label} ({account.id})")
                 

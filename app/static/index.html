@@ -13,7 +13,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Custom stylesheet -->
-    <link rel="stylesheet" href="/static/style.css?v=1.7.0">
+    <link rel="stylesheet" href="/static/style.css?v=1.8.0">
 </head>
 <body>
     <div class="background-decor">
@@ -224,7 +224,10 @@
                 <div class="panel glass-card">
                     <div class="panel-header flex-header">
                         <h2><i class="fa-solid fa-list-ol"></i> Liste des transactions</h2>
-                        <button id="btn-open-import" class="btn btn-primary btn-sm"><i class="fa-solid fa-file-import"></i> Importer</button>
+                        <div style="display: flex; gap: 8px;">
+                            <button id="btn-add-transaction" class="btn btn-primary btn-sm"><i class="fa-solid fa-plus"></i> Nouvelle transaction</button>
+                            <button id="btn-open-import" class="btn btn-secondary btn-sm"><i class="fa-solid fa-file-import"></i> Importer</button>
+                        </div>
                     </div>
                     <div class="panel-body">
                         <div class="table-responsive">
@@ -887,7 +890,77 @@
             </form>
         </div>
     </div>
+
+    <!-- Add Manual Transaction Modal -->
+    <div id="modal-add-transaction" class="modal hidden">
+        <div class="modal-content glass-card" style="max-width: 520px; width: 90%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h3 style="margin: 0;"><i class="fa-solid fa-circle-plus" style="color: var(--primary);"></i> Nouvelle transaction</h3>
+                <button type="button" class="btn-close-modal" id="btn-close-add-tx-x" style="background: none; border: none; font-size: 1.3rem; cursor: pointer; color: var(--text-muted); line-height: 1;">&times;</button>
+            </div>
+            <form id="form-add-transaction">
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="add-tx-account">Compte <span class="text-danger">*</span></label>
+                    <select id="add-tx-account" required style="width: 100%;">
+                        <!-- Populated in JS -->
+                    </select>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div class="form-group">
+                        <label for="add-tx-date">Date <span class="text-danger">*</span></label>
+                        <input type="date" id="add-tx-date" required style="width: 100%;">
+                    </div>
+                    <div class="form-group">
+                        <label for="add-tx-flow-type">Sens du flux</label>
+                        <select id="add-tx-flow-type" style="width: 100%;">
+                            <option value="expense" selected>Dépense (-)</option>
+                            <option value="income">Revenu (+)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div class="form-group">
+                        <label for="add-tx-amount">Montant (€) <span class="text-danger">*</span></label>
+                        <input type="number" id="add-tx-amount" step="0.01" min="0.01" placeholder="ex: 45.50" required style="width: 100%;">
+                    </div>
+                    <div class="form-group">
+                        <label for="add-tx-category">Catégorie</label>
+                        <select id="add-tx-category" style="width: 100%;">
+                            <option value="">-- Automatique --</option>
+                            <!-- Populated in JS -->
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="add-tx-label">Libellé / Description <span class="text-danger">*</span></label>
+                    <input type="text" id="add-tx-label" placeholder="ex: Courses Leclerc, Resto, Virement..." required style="width: 100%;">
+                </div>
+
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="add-tx-note">Note / Mémo (facultatif)</label>
+                    <input type="text" id="add-tx-note" placeholder="Détails complémentaires..." style="width: 100%;">
+                </div>
+
+                <div style="display: flex; gap: 20px; margin-bottom: 20px; padding: 10px 14px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.88rem; margin: 0;">
+                        <input type="checkbox" id="add-tx-checked" class="table-checkbox"> Pointée (Pt)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.88rem; margin: 0;">
+                        <input type="checkbox" id="add-tx-decalage" class="table-checkbox"> Mois décalé (Déc)
+                    </label>
+                </div>
+
+                <div class="form-actions" style="margin-top: 20px;">
+                    <button type="button" id="btn-close-add-tx-modal" class="btn btn-secondary btn-sm">Annuler</button>
+                    <button type="submit" id="btn-submit-add-tx" class="btn btn-primary btn-sm"><i class="fa-solid fa-check"></i> Ajouter la transaction</button>
+                </div>
+            </form>
+        </div>
+    </div>
  
-    <script src="/static/app.js?v=1.7.0"></script>
+    <script src="/static/app.js?v=1.8.1"></script>
 </body>
 </html>

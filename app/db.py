@@ -977,4 +977,80 @@ def update_account_rate(account_id, rate):
     conn.commit()
     conn.close()
 
+def create_manual_transaction(account_id, date, label, amount, category=None, tr_type=None, note="", checked=0, decalage=0):
+    import uuid
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Resolve category & type
+    if not category or category == "None" or category == "":
+        cursor.execute("SELECT pattern, category, type FROM categorization_rules")
+        rules = [(row["pattern"].upper(), row["category"], row["type"]) for row in cursor.fetchall()]
+        label_upper = label.upper()
+        matched = False
+        for pattern, cat, typ in rules:
+            if pattern in label_upper:
+                category = cat
+                tr_type = typ
+                matched = True
+                break
+        if not matched:
+            if amount >= 0:
+                tr_type = "Revenu"
+                category = "Autre"
+            else:
+                tr_type = "Dépense variable"
+                category = "Divers"
+    elif not tr_type:
+        cursor.execute("SELECT type FROM categories WHERE name = ?", (category,))
+        row = cursor.fetchone()
+        if row:
+            tr_type = row["type"]
+        else:
+            tr_type = "Revenu" if amount >= 0 else "Dépense variable"
+            
+    timestamp_slug = datetime.now().strftime("%Y%m%d%H%M%S")
+    rand_slug = uuid.uuid4().hex[:8]
+    tr_id = f"manual_{timestamp_slug}_{rand_slug}"
+    sync_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    cursor.execute("""
+    INSERT INTO transactions (id, account_id, date, rdate, label, amount, type, category, note, checked, decalage, sync_timestamp, coming)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+    """, (tr_id, account_id, date, date, label, amount, tr_type, category, note or "", 1 if checked else 0, 1 if decalage else 0, sync_timestamp))
+    
+    # Update account balance if account is manual
+    cursor.execute("SELECT backend_name FROM accounts WHERE id = ?", (account_id,))
+    acc_row = cursor.fetchone()
+    if acc_row and acc_row["backend_name"] == "Manuel":
+        cursor.execute("UPDATE accounts SET balance = balance + ? WHERE id = ?", (amount, account_id))
+        
+    conn.commit()
+    conn.close()
+    return tr_id
+
+def delete_transaction(transaction_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT account_id, amount FROM transactions WHERE id = ?", (transaction_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise ValueError("Transaction non trouvée.")
+        
+    account_id = row["account_id"]
+    amount = row["amount"]
+    
+    cursor.execute("DELETE FROM transactions WHERE id = ?", (transaction_id,))
+    cursor.execute("DELETE FROM transactions WHERE id LIKE ?", (f"{transaction_id}_split_%",))
+    
+    cursor.execute("SELECT backend_name FROM accounts WHERE id = ?", (account_id,))
+    acc_row = cursor.fetchone()
+    if acc_row and acc_row["backend_name"] == "Manuel":
+        cursor.execute("UPDATE accounts SET balance = balance - ? WHERE id = ?", (amount, account_id))
+        
+    conn.commit()
+    conn.close()
+
+
 

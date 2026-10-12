@@ -363,6 +363,42 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         }
         
+        // Add Manual Transaction Modal Event Listeners
+        const btnOpenAddTx = document.getElementById("btn-add-transaction");
+        if (btnOpenAddTx) {
+            btnOpenAddTx.addEventListener("click", () => {
+                openAddTransactionModal();
+            });
+        }
+
+        const btnCloseAddTxModal = document.getElementById("btn-close-add-tx-modal");
+        if (btnCloseAddTxModal) {
+            btnCloseAddTxModal.addEventListener("click", () => {
+                document.getElementById("modal-add-transaction").classList.add("hidden");
+                document.getElementById("form-add-transaction").reset();
+            });
+        }
+
+        const btnCloseAddTxX = document.getElementById("btn-close-add-tx-x");
+        if (btnCloseAddTxX) {
+            btnCloseAddTxX.addEventListener("click", () => {
+                document.getElementById("modal-add-transaction").classList.add("hidden");
+                document.getElementById("form-add-transaction").reset();
+            });
+        }
+
+        const formAddTx = document.getElementById("form-add-transaction");
+        if (formAddTx) {
+            formAddTx.addEventListener("submit", handleAddTransactionSubmit);
+        }
+
+        const addTxFlowType = document.getElementById("add-tx-flow-type");
+        if (addTxFlowType) {
+            addTxFlowType.addEventListener("change", () => {
+                updateAddTransactionCategories();
+            });
+        }
+
         // Import Modal Event Listeners
         const btnOpenImport = document.getElementById("btn-open-import");
         if (btnOpenImport) {
@@ -992,9 +1028,12 @@ document.addEventListener("DOMContentLoaded", () => {
                         <input type="checkbox" class="table-checkbox transaction-decalage-cb" ${t.decalage ? "checked" : ""}>
                     </td>
                     <td class="text-right ${amountClass}"><strong>${amountText}</strong></td>
-                    <td class="text-center">
+                    <td class="text-center" style="white-space: nowrap;">
                         <button class="btn btn-secondary btn-sm btn-split-tx" title="Scinder la transaction" style="padding: 2px 6px; font-size: 0.8rem;">
                             <i class="fa-solid fa-scissors"></i>
+                        </button>
+                        <button class="btn btn-danger btn-sm btn-delete-tx" title="Supprimer la transaction" style="padding: 2px 6px; font-size: 0.8rem; margin-left: 4px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444;">
+                            <i class="fa-solid fa-trash"></i>
                         </button>
                     </td>
                 </tr>
@@ -1036,6 +1075,14 @@ document.addEventListener("DOMContentLoaded", () => {
             if (btnSplit) {
                 btnSplit.addEventListener("click", () => {
                     openSplitModal(t);
+                });
+            }
+
+            // Delete button click
+            const btnDelete = row.querySelector(".btn-delete-tx");
+            if (btnDelete) {
+                btnDelete.addEventListener("click", () => {
+                    deleteTransaction(tId);
                 });
             }
         });
@@ -3131,6 +3178,138 @@ document.addEventListener("DOMContentLoaded", () => {
         } finally {
             btnSubmit.disabled = false;
             btnSubmit.innerText = origText;
+        }
+    }
+
+    // -------------------------------------------------------------
+    // MANUAL TRANSACTIONS LOGIC
+    // -------------------------------------------------------------
+    function openAddTransactionModal() {
+        const modal = document.getElementById("modal-add-transaction");
+        const form = document.getElementById("form-add-transaction");
+        form.reset();
+        
+        // Populate accounts selector
+        const accSelect = document.getElementById("add-tx-account");
+        const sortedAccs = [...state.accounts].sort((a, b) => (a.label || "").localeCompare(b.label || "", 'fr'));
+        
+        // If filter has an active account selected, use it by default
+        const activeFilterAcc = state.txFilters.account_id;
+        
+        accSelect.innerHTML = sortedAccs.map(acc => {
+            const isSelected = activeFilterAcc && acc.id === activeFilterAcc ? "selected" : "";
+            return `<option value="${escapeHTML(acc.id)}" ${isSelected}>${escapeHTML(acc.label)}</option>`;
+        }).join("");
+        
+        // Set date to today (YYYY-MM-DD)
+        const dateInput = document.getElementById("add-tx-date");
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        dateInput.value = `${year}-${month}-${day}`;
+        
+        // Update category selector
+        updateAddTransactionCategories();
+        
+        modal.classList.remove("hidden");
+    }
+
+    function updateAddTransactionCategories() {
+        const catSelect = document.getElementById("add-tx-category");
+        const flowType = document.getElementById("add-tx-flow-type")?.value || "expense";
+        if (!catSelect) return;
+        
+        const sortedCategories = [...state.categories].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+        
+        const filtered = sortedCategories.filter(c => {
+            if (c.type === "Transfert" || c.name.toLowerCase() === "transfert") return true;
+            if (flowType === "income") return c.type === "Revenu";
+            return c.type === "Dépense fixe" || c.type === "Dépense variable";
+        });
+        
+        catSelect.innerHTML = `<option value="">-- Automatique --</option>` + filtered.map(c => 
+            `<option value="${escapeHTML(c.name)}">${escapeHTML(c.name)} (${escapeHTML(c.type)})</option>`
+        ).join("");
+    }
+
+    async function handleAddTransactionSubmit(e) {
+        e.preventDefault();
+        const accountId = document.getElementById("add-tx-account").value;
+        const date = document.getElementById("add-tx-date").value;
+        const flowType = document.getElementById("add-tx-flow-type").value;
+        const rawAmount = parseFloat(document.getElementById("add-tx-amount").value);
+        const label = document.getElementById("add-tx-label").value.trim();
+        const category = document.getElementById("add-tx-category").value;
+        const note = document.getElementById("add-tx-note").value.trim();
+        const checked = document.getElementById("add-tx-checked").checked;
+        const decalage = document.getElementById("add-tx-decalage").checked;
+        
+        if (!accountId || !date || !label || isNaN(rawAmount) || rawAmount <= 0) {
+            showToast("Veuillez remplir tous les champs obligatoires avec des valeurs valides.", "error");
+            return;
+        }
+        
+        const finalAmount = flowType === "expense" ? -Math.abs(rawAmount) : Math.abs(rawAmount);
+        
+        const btnSubmit = document.getElementById("btn-submit-add-tx");
+        const originalText = btnSubmit.innerHTML;
+        btnSubmit.disabled = true;
+        btnSubmit.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Enregistrement...`;
+        
+        try {
+            const res = await fetch("/api/transactions", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    account_id: accountId,
+                    date: date,
+                    label: label,
+                    amount: finalAmount,
+                    category: category || null,
+                    note: note,
+                    checked: checked,
+                    decalage: decalage
+                })
+            });
+            
+            const data = await res.json();
+            if (res.ok) {
+                showToast(data.message || "Transaction ajoutée avec succès !", "success");
+                document.getElementById("modal-add-transaction").classList.add("hidden");
+                document.getElementById("form-add-transaction").reset();
+                await loadAllData();
+            } else {
+                showToast(data.detail || "Erreur lors de l'ajout de la transaction.", "error");
+            }
+        } catch (err) {
+            console.error("Error creating transaction:", err);
+            showToast("Erreur réseau lors de l'ajout de la transaction.", "error");
+        } finally {
+            btnSubmit.disabled = false;
+            btnSubmit.innerHTML = originalText;
+        }
+    }
+
+    async function deleteTransaction(transactionId) {
+        if (!confirm("Voulez-vous vraiment supprimer cette transaction ? Cette action est irréversible.")) {
+            return;
+        }
+        
+        try {
+            const res = await fetch(`/api/transactions/${transactionId}`, {
+                method: "DELETE"
+            });
+            const data = await res.json();
+            if (res.ok) {
+                showToast(data.message || "Transaction supprimée.", "success");
+                await loadAllData();
+            } else {
+                showToast(data.detail || "Erreur lors de la suppression.", "error");
+            }
+        } catch (err) {
+            console.error("Delete error:", err);
+            showToast("Erreur réseau lors de la suppression.", "error");
         }
     }
 });
